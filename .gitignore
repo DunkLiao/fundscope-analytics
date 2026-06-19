@@ -1,0 +1,25 @@
+# Python virtual environment
+venv/
+.venv/
+
+# Python cache and tooling
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Local runtime output
+fundlist/fund_full_info.csv
+db/*.db
+fundlist/uvicorn-*.log
+fundlist/uvicorn-*.err.log
+
+# Local editor and OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

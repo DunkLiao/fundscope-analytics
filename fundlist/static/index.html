@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>基金淨值查詢</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <main class="shell">
+    <section class="query-panel" aria-labelledby="page-title">
+      <div>
+        <p class="eyebrow">Fund NAV Lookup</p>
+        <h1 id="page-title">基金逐日淨值查詢</h1>
+      </div>
+      <form id="query-form" class="query-form">
+        <label for="fund-code">基金代號</label>
+        <div class="query-row">
+          <input id="fund-code" name="fund-code" autocomplete="off" maxlength="4" placeholder="例如 0721" required>
+          <button type="submit">查詢</button>
+        </div>
+      </form>
+      <p id="message" class="message" role="status"></p>
+    </section>
+
+    <section id="fund-summary" class="summary" hidden>
+      <div>
+        <span class="label">基金代號</span>
+        <strong id="summary-code"></strong>
+      </div>
+      <div>
+        <span class="label">基金名稱</span>
+        <strong id="summary-name"></strong>
+      </div>
+      <div>
+        <span class="label">市場</span>
+        <strong id="summary-market"></strong>
+      </div>
+      <div>
+        <span class="label">查詢傳輸代號</span>
+        <strong id="summary-trans"></strong>
+      </div>
+    </section>
+
+    <section class="table-section" aria-labelledby="table-title">
+      <h2 id="table-title">逐日淨值</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>日期</th>
+              <th>淨值</th>
+              <th>漲/跌</th>
+              <th>漲跌幅(%)</th>
+            </tr>
+          </thead>
+          <tbody id="nav-body">
+            <tr><td colspan="4" class="empty">輸入基金代號後查詢</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+  <script src="/static/app.js"></script>
+</body>
+</html>
