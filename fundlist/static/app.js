@@ -10,6 +10,15 @@ const message = document.querySelector("#message");
 const summary = document.querySelector("#fund-summary");
 const navBody = document.querySelector("#nav-body");
 
+const performanceForm = document.querySelector("#performance-form");
+const performanceInput = document.querySelector("#performance-fund-code");
+const performanceMessage = document.querySelector("#performance-message");
+const performanceSummary = document.querySelector("#performance-fund-summary");
+const performanceSummaryBody = document.querySelector("#performance-summary-body");
+const performanceReturnsHead = document.querySelector("#performance-returns-head");
+const performanceReturnsBody = document.querySelector("#performance-returns-body");
+const performanceSource = document.querySelector("#performance-source");
+
 const startUpdateButton = document.querySelector("#start-update");
 const updateState = document.querySelector("#update-state");
 const updateStarted = document.querySelector("#update-started");
@@ -24,6 +33,13 @@ const summaryFields = {
   name: document.querySelector("#summary-name"),
   market: document.querySelector("#summary-market"),
   trans: document.querySelector("#summary-trans"),
+};
+
+const performanceSummaryFields = {
+  code: document.querySelector("#performance-summary-code"),
+  name: document.querySelector("#performance-summary-name"),
+  market: document.querySelector("#performance-summary-market"),
+  trans: document.querySelector("#performance-summary-trans"),
 };
 
 const updateStateLabels = {
@@ -95,6 +111,11 @@ function setMessage(text, type = "") {
   message.dataset.type = type;
 }
 
+function setPerformanceMessage(text, type = "") {
+  performanceMessage.textContent = text;
+  performanceMessage.dataset.type = type;
+}
+
 function setUpdateMessage(text, type = "") {
   updateMessage.textContent = text;
   updateMessage.dataset.type = type;
@@ -118,6 +139,13 @@ function formatCurrency(value) {
   return amount.toLocaleString("zh-TW");
 }
 
+function formatPercent(value) {
+  if (value === null || value === undefined) return "N/A";
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return "N/A";
+  return parsed.toFixed(2);
+}
+
 function escapeHtml(value) {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -133,6 +161,14 @@ function renderSummary(fund) {
   summaryFields.market.textContent = fund.market || "-";
   summaryFields.trans.textContent = fund.fund_id || "-";
   summary.hidden = false;
+}
+
+function renderPerformanceFundSummary(fund) {
+  performanceSummaryFields.code.textContent = fund.fund_code || "-";
+  performanceSummaryFields.name.textContent = fund.fund_name_main || fund.fund_name || "-";
+  performanceSummaryFields.market.textContent = fund.market || "-";
+  performanceSummaryFields.trans.textContent = fund.fund_id || "-";
+  performanceSummary.hidden = false;
 }
 
 function renderRows(rows) {
@@ -156,8 +192,61 @@ function renderRows(rows) {
     .join("");
 }
 
+function renderPerformance(payload) {
+  const performance = payload.performance;
+  const summaryRow = performance.summary;
+  const returns = performance.cumulative_returns || [];
+  const sourceUrl = performance.source_url;
+
+  performanceSummaryBody.innerHTML = `
+    <tr>
+      <td>${escapeHtml(summaryRow.fund_name || "-")}</td>
+      <td>${formatNumber(summaryRow.nav)}</td>
+      <td>${escapeHtml(summaryRow.nav_date || "-")}</td>
+      <td class="up">${formatPercent(summaryRow.year_to_date_return_percent)}</td>
+      <td>${formatPercent(summaryRow.annualized_standard_deviation_percent)}</td>
+      <td>${formatNumber(summaryRow.sharpe, 2)}</td>
+      <td>${formatNumber(summaryRow.beta, 2)}</td>
+    </tr>
+  `;
+
+  if (!returns.length) {
+    performanceReturnsHead.innerHTML = "<tr><th>基金名稱</th></tr>";
+    performanceReturnsBody.innerHTML = '<tr><td class="empty">查無累積報酬率資料</td></tr>';
+  } else {
+    performanceReturnsHead.innerHTML = `
+      <tr>
+        <th>基金名稱</th>
+        ${returns.map((item) => `<th>${escapeHtml(item.period)}</th>`).join("")}
+      </tr>
+    `;
+    performanceReturnsBody.innerHTML = `
+      <tr>
+        <td>${escapeHtml(summaryRow.fund_name || "-")}</td>
+        ${returns.map((item) => `<td>${formatPercent(item.return_percent)}</td>`).join("")}
+      </tr>
+    `;
+  }
+
+  if (sourceUrl) {
+    performanceSource.innerHTML = `資料來源：<a href="${escapeHtml(sourceUrl)}" target="_blank" rel="noreferrer">臺銀基金績效頁</a>`;
+    performanceSource.hidden = false;
+  } else {
+    performanceSource.hidden = true;
+  }
+}
+
 async function queryFund(code) {
   const response = await fetch(`/api/funds/${encodeURIComponent(code)}/nav`);
+  const payload = await response.json();
+  if (!response.ok) {
+    throw new Error(payload.detail || "查詢失敗");
+  }
+  return payload;
+}
+
+async function queryPerformance(code) {
+  const response = await fetch(`/api/funds/${encodeURIComponent(code)}/performance`);
   const payload = await response.json();
   if (!response.ok) {
     throw new Error(payload.detail || "查詢失敗");
@@ -451,6 +540,36 @@ form.addEventListener("submit", async (event) => {
   } catch (error) {
     navBody.innerHTML = '<tr><td colspan="4" class="empty">無法顯示資料</td></tr>';
     setMessage(error.message, "error");
+  }
+});
+
+performanceForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const code = performanceInput.value.trim().toUpperCase();
+  if (!/^[A-Z0-9]{4}$/.test(code)) {
+    setPerformanceMessage("基金代號必須是四碼英數字", "error");
+    performanceInput.focus();
+    return;
+  }
+
+  performanceInput.value = code;
+  performanceSummary.hidden = true;
+  performanceSource.hidden = true;
+  performanceSummaryBody.innerHTML = '<tr><td colspan="7" class="empty">查詢中...</td></tr>';
+  performanceReturnsHead.innerHTML = "<tr><th>基金名稱</th></tr>";
+  performanceReturnsBody.innerHTML = '<tr><td class="empty">查詢中...</td></tr>';
+  setPerformanceMessage("查詢中...", "loading");
+
+  try {
+    const payload = await queryPerformance(code);
+    renderPerformanceFundSummary(payload.fund);
+    renderPerformance(payload);
+    setPerformanceMessage("績效資料已載入", "success");
+  } catch (error) {
+    performanceSummaryBody.innerHTML = '<tr><td colspan="7" class="empty">無法顯示資料</td></tr>';
+    performanceReturnsHead.innerHTML = "<tr><th>基金名稱</th></tr>";
+    performanceReturnsBody.innerHTML = '<tr><td class="empty">無法顯示資料</td></tr>';
+    setPerformanceMessage(error.message, "error");
   }
 });
 

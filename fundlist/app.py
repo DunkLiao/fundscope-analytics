@@ -9,11 +9,12 @@ from fastapi.staticfiles import StaticFiles
 
 try:
     from . import GetFundBackSiteToCsv as fund_list_updater
-    from . import database, fetch_nav
+    from . import database, fetch_nav, fetch_performance
 except ImportError:
     import GetFundBackSiteToCsv as fund_list_updater
     import database
     import fetch_nav
+    import fetch_performance
 
 
 APP_DIR = Path(__file__).resolve().parent
@@ -179,6 +180,28 @@ def get_fund_nav(fund_code):
         raise HTTPException(status_code=502, detail=f"淨值來源查詢失敗：{exc}") from exc
 
     return {"fund": fund, "nav": nav_rows}
+
+
+@app.get("/api/funds/{fund_code}/performance")
+def get_fund_performance(fund_code):
+    normalized_code = normalize_fund_code(fund_code)
+
+    fund = database.get_fund_by_code(normalized_code)
+    if fund is None:
+        raise HTTPException(status_code=404, detail="找不到此基金代號，請先更新基金清單")
+    if not fund.get("fund_id"):
+        raise HTTPException(status_code=502, detail="此基金缺少查詢傳輸代號，無法查詢績效")
+
+    try:
+        performance = fetch_performance.fetch_performance_for_fund(
+            fund_id=fund["fund_id"],
+            fund_code=fund["fund_code"],
+            market=fund.get("market", ""),
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"績效來源查詢失敗：{exc}") from exc
+
+    return {"fund": fund, "performance": performance}
 
 
 @app.get("/api/investment-settings/{setting_type}")

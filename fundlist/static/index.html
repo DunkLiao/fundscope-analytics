@@ -22,6 +22,7 @@
         <summary>基本資料</summary>
         <div class="menu-list">
           <button type="button" data-view="nav-query">基金淨值查詢</button>
+          <button type="button" data-view="performance-query">基金績效查詢</button>
           <button type="button" data-view="fund-list">讀取基金清單</button>
         </div>
       </details>
@@ -49,6 +50,11 @@
           <span class="module-kicker">基本資料</span>
           <h3>基金淨值查詢</h3>
           <p>依四碼基金代號查詢基金基本資料與近一年逐日淨值。</p>
+        </article>
+        <article class="module-card action-card" data-view="performance-query" tabindex="0">
+          <span class="module-kicker">基本資料</span>
+          <h3>基金績效查詢</h3>
+          <p>依四碼基金代號查詢臺銀績效摘要與累積報酬率。</p>
         </article>
         <article class="module-card action-card" data-view="fund-list" tabindex="0">
           <span class="module-kicker">基本資料</span>
@@ -126,6 +132,82 @@
           </table>
         </div>
       </section>
+    </section>
+
+    <section class="view" data-view-panel="performance-query" aria-labelledby="performance-title">
+      <section class="query-panel">
+        <div>
+          <p class="eyebrow">Basic Data</p>
+          <h2 id="performance-title">基金績效查詢</h2>
+        </div>
+        <form id="performance-form" class="query-form">
+          <label for="performance-fund-code">基金代號</label>
+          <div class="query-row">
+            <input id="performance-fund-code" name="performance-fund-code" autocomplete="off" maxlength="4" placeholder="例如 0922" required>
+            <button type="submit">查詢</button>
+          </div>
+        </form>
+        <p id="performance-message" class="message" role="status"></p>
+      </section>
+
+      <section id="performance-fund-summary" class="summary" hidden>
+        <div>
+          <span class="label">基金代號</span>
+          <strong id="performance-summary-code"></strong>
+        </div>
+        <div>
+          <span class="label">基金名稱</span>
+          <strong id="performance-summary-name"></strong>
+        </div>
+        <div>
+          <span class="label">市場</span>
+          <strong id="performance-summary-market"></strong>
+        </div>
+        <div>
+          <span class="label">查詢傳輸代號</span>
+          <strong id="performance-summary-trans"></strong>
+        </div>
+      </section>
+
+      <section class="table-section" aria-labelledby="performance-summary-title">
+        <h2 id="performance-summary-title">基本績效</h2>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>基金</th>
+                <th>淨值</th>
+                <th>淨值日期</th>
+                <th>自今年以來報酬率(%)</th>
+                <th>年化標準差(%)</th>
+                <th>Sharpe</th>
+                <th>β</th>
+              </tr>
+            </thead>
+            <tbody id="performance-summary-body">
+              <tr><td colspan="7" class="empty">輸入基金代號後查詢</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="table-section" aria-labelledby="performance-returns-title">
+        <h2 id="performance-returns-title">累積報酬率(%)</h2>
+        <div class="table-wrap">
+          <table>
+            <thead id="performance-returns-head">
+              <tr>
+                <th>基金名稱</th>
+              </tr>
+            </thead>
+            <tbody id="performance-returns-body">
+              <tr><td class="empty">輸入基金代號後查詢</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <p id="performance-source" class="source-link" hidden></p>
     </section>
 
     <section class="view" data-view-panel="fund-list" aria-labelledby="fund-list-title">

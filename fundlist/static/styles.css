@@ -340,6 +340,17 @@ input {
   color: #027a48;
 }
 
+.source-link {
+  margin: 14px 0 0;
+  color: #536172;
+  font-size: 14px;
+}
+
+.source-link a {
+  color: #15616d;
+  font-weight: 700;
+}
+
 .investment-form {
   display: grid;
   gap: 14px;

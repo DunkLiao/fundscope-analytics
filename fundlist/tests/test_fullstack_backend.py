@@ -175,6 +175,190 @@ class FetchNavTests(unittest.TestCase):
         self.assertEqual(rows[0]["change"], -0.25)
 
 
+class FetchPerformanceTests(unittest.TestCase):
+    DOMESTIC_HTML = """
+    <html><body>
+      <table>
+        <tr>
+          <td class="wfb8c">基金</td>
+          <td class="wfb8c">淨值</td>
+          <td class="wfb8c">淨值日期</td>
+          <td class="wfb8c" colspan="2">自今年以來報酬率(%)</td>
+          <td class="wfb8c">年化<br>標準差(%)</td>
+          <td class="wfb8c">Sharpe</td>
+          <td class="wfb8c"><span>b</span></td>
+        </tr>
+        <tr>
+          <td class="wfb2l">中國信託高評級策略收益債券基金-B分配型(台幣)</td>
+          <td class="wfb2r">9.4905</td>
+          <td class="wfb2c">2026/06/17</td>
+          <td class="wfb2rR" colspan="2">1.31</td>
+          <td class="wfb2rR">5.16</td>
+          <td class="wfb2rR">0.49</td>
+          <td class="wfb2rR">1.38</td>
+        </tr>
+      </table>
+      <table>
+        <tr>
+          <td rowspan="2" class="wfb8c">基金名稱</td>
+          <td colspan="7" class="wfb8c">累積報酬率(%)</td>
+        </tr>
+        <tr>
+          <td class="wfb8c">一個月</td>
+          <td class="wfb8c">三個月</td>
+          <td class="wfb8c">六個月</td>
+          <td class="wfb8c">一年</td>
+          <td class="wfb8c">二年</td>
+          <td class="wfb8c">三年</td>
+          <td class="wfb8c">五年</td>
+        </tr>
+        <tr>
+          <td class="wfb2l">中國信託高評級策略收益債券基金-B分配型(台幣)</td>
+          <td class="wfb2rR">1.93</td>
+          <td class="wfb2rR">1.12</td>
+          <td class="wfb2rR">1.41</td>
+          <td class="wfb2rR">10.28</td>
+          <td class="wfb2rR">4.44</td>
+          <td class="wfb2r">N/A</td>
+          <td class="wfb2r">N/A</td>
+        </tr>
+      </table>
+    </body></html>
+    """
+
+    OVERSEAS_HTML = """
+    <html><body>
+      <table>
+        <tr>
+          <td class="wfb8c">基金</td>
+          <td class="wfb8c">淨值</td>
+          <td class="wfb8c">淨值日期</td>
+          <td class="wfb8c">自今年以來<br>報酬率(%)</td>
+          <td class="wfb8c">年化<br>標準差(%)</td>
+          <td class="wfb8c">Sharpe</td>
+          <td class="wfb8c"><span>b</span></td>
+        </tr>
+        <tr>
+          <td class="wfb2l">聯博-全球非投資等級債券AT級別美元</td>
+          <td class="wfb2r">3.0900</td>
+          <td class="wfb2c">2026/06/18</td>
+          <td class="wfb2rR">1.78</td>
+          <td class="wfb2rR">3.88</td>
+          <td class="wfb2rR">0.38</td>
+          <td class="wfb2rR">1.07</td>
+        </tr>
+      </table>
+      <table>
+        <tr>
+          <td rowspan="2" class="wfb8c">基金名稱</td>
+          <td colspan="11" class="wfb8c">累積報酬率(%)</td>
+        </tr>
+        <tr>
+          <td class="wfb8c">一週</td>
+          <td class="wfb8c">一個月</td>
+          <td class="wfb8c">本月</td>
+          <td class="wfb8c">本季</td>
+          <td class="wfb8c">三個月</td>
+          <td class="wfb8c">六個月</td>
+          <td class="wfb8c">九個月</td>
+          <td class="wfb8c">一年</td>
+          <td class="wfb8c">二年</td>
+          <td class="wfb8c">三年</td>
+          <td class="wfb8c">五年</td>
+        </tr>
+        <tr>
+          <td class="wfb2l">聯博-全球非投資等級債券AT級別美元</td>
+          <td class="wfb2rR">0.32</td>
+          <td class="wfb2rR">1.27</td>
+          <td class="wfb2rR">0.32</td>
+          <td class="wfb2rR">2.90</td>
+          <td class="wfb2rR">2.53</td>
+          <td class="wfb2rR">2.07</td>
+          <td class="wfb2rR">2.62</td>
+          <td class="wfb2rR">6.49</td>
+          <td class="wfb2rR">14.46</td>
+          <td class="wfb2rR">26.49</td>
+          <td class="wfb2rR">16.26</td>
+        </tr>
+      </table>
+    </body></html>
+    """
+
+    def test_parse_domestic_performance_tables(self):
+        import fetch_performance
+
+        result = fetch_performance.parse_performance_html(self.DOMESTIC_HTML)
+
+        self.assertEqual(result["summary"]["fund_name"], "中國信託高評級策略收益債券基金-B分配型(台幣)")
+        self.assertEqual(result["summary"]["nav"], 9.4905)
+        self.assertEqual(result["summary"]["nav_date"], "2026/06/17")
+        self.assertEqual(result["summary"]["year_to_date_return_percent"], 1.31)
+        self.assertEqual(result["summary"]["annualized_standard_deviation_percent"], 5.16)
+        self.assertEqual(result["summary"]["sharpe"], 0.49)
+        self.assertEqual(result["summary"]["beta"], 1.38)
+        self.assertEqual(
+            result["cumulative_returns"],
+            [
+                {"period": "一個月", "return_percent": 1.93},
+                {"period": "三個月", "return_percent": 1.12},
+                {"period": "六個月", "return_percent": 1.41},
+                {"period": "一年", "return_percent": 10.28},
+                {"period": "二年", "return_percent": 4.44},
+                {"period": "三年", "return_percent": None},
+                {"period": "五年", "return_percent": None},
+            ],
+        )
+
+    def test_parse_overseas_performance_tables_with_short_term_periods(self):
+        import fetch_performance
+
+        result = fetch_performance.parse_performance_html(self.OVERSEAS_HTML)
+
+        self.assertEqual(result["summary"]["fund_name"], "聯博-全球非投資等級債券AT級別美元")
+        self.assertEqual(result["summary"]["nav"], 3.09)
+        self.assertEqual(result["summary"]["nav_date"], "2026/06/18")
+        self.assertEqual(result["cumulative_returns"][0], {"period": "一週", "return_percent": 0.32})
+        self.assertEqual(result["cumulative_returns"][3], {"period": "本季", "return_percent": 2.9})
+        self.assertEqual(result["cumulative_returns"][-1], {"period": "五年", "return_percent": 16.26})
+
+    def test_parse_skips_outer_rows_from_nested_source_tables(self):
+        import fetch_performance
+
+        nested_html = f"""
+        <html><body>
+          <table>
+            <tr>
+              <td>
+                {self.DOMESTIC_HTML}
+              </td>
+            </tr>
+          </table>
+        </body></html>
+        """
+
+        result = fetch_performance.parse_performance_html(nested_html)
+
+        self.assertEqual(result["summary"]["nav"], 9.4905)
+        self.assertEqual(result["cumulative_returns"][3], {"period": "一年", "return_percent": 10.28})
+
+    def test_fetch_performance_for_fund_uses_market_specific_url(self):
+        import fetch_performance
+
+        with patch.object(fetch_performance, "fetch_performance_html", return_value=self.OVERSEAS_HTML) as fetch_html:
+            result = fetch_performance.fetch_performance_for_fund(
+                fund_id="ALZ60",
+                fund_code="0922",
+                market="海外",
+            )
+
+        fetch_html.assert_called_once_with(
+            "https://fund.bot.com.tw/w/wb/wb03a.djhtm?a=ALZ60-0922",
+            timeout=fetch_performance.TIMEOUT,
+        )
+        self.assertEqual(result["source_url"], "https://fund.bot.com.tw/w/wb/wb03a.djhtm?a=ALZ60-0922")
+        self.assertEqual(result["summary"]["nav"], 3.09)
+
+
 class BatchFileTests(unittest.TestCase):
     def test_start_website_stops_existing_service_before_starting(self):
         script_path = Path(__file__).resolve().parents[2] / "start_website.bat"
@@ -212,6 +396,19 @@ class StaticLayoutTests(unittest.TestCase):
         self.assertIn(".investment-table td::before", css)
         self.assertIn(".investment-table td:nth-child(4)", css)
         self.assertIn(".investment-table .table-actions", css)
+
+    def test_static_layout_includes_fund_performance_query_view(self):
+        static_dir = Path(__file__).resolve().parents[1] / "static"
+        html = (static_dir / "index.html").read_text(encoding="utf-8")
+        js = (static_dir / "app.js").read_text(encoding="utf-8")
+
+        self.assertIn('data-view="performance-query"', html)
+        self.assertIn('data-view-panel="performance-query"', html)
+        self.assertIn("基金績效查詢", html)
+        self.assertIn("/performance", js)
+        self.assertIn("performance-summary-body", html)
+        self.assertIn("performance-returns-head", html)
+        self.assertIn("performance-returns-body", html)
 
 
 class ApiTests(unittest.TestCase):
@@ -258,6 +455,50 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(payload["nav"][0]["date"], "2026-06-19")
         self.assertEqual(payload["nav"][0]["nav"], 10.25)
 
+    def test_api_returns_performance_for_four_character_fund_code(self):
+        app = self.load_app()
+        from fastapi.testclient import TestClient
+
+        client = TestClient(app.app)
+        fund = {
+            "market": "海外",
+            "fund_company": "聯博投信",
+            "fund_id": "ALZ60",
+            "fund_name_main": "聯博-全球非投資等級債券基金AT級別美元",
+            "base_code": "BASE123",
+            "can_sell": "*",
+            "fund_code": "0922",
+            "fund_name": "",
+        }
+        performance = {
+            "source_url": "https://fund.bot.com.tw/w/wb/wb03a.djhtm?a=ALZ60-0922",
+            "summary": {
+                "fund_name": "聯博-全球非投資等級債券AT級別美元",
+                "nav": 3.09,
+                "nav_date": "2026/06/18",
+                "year_to_date_return_percent": 1.78,
+                "annualized_standard_deviation_percent": 3.88,
+                "sharpe": 0.38,
+                "beta": 1.07,
+            },
+            "cumulative_returns": [{"period": "一週", "return_percent": 0.32}],
+        }
+
+        with patch.object(app.database, "get_fund_by_code", return_value=fund), patch.object(
+            app.fetch_performance, "fetch_performance_for_fund", return_value=performance
+        ) as fetch_performance:
+            response = client.get("/api/funds/0922/performance")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["fund"]["fund_code"], "0922")
+        self.assertEqual(payload["performance"]["summary"]["nav"], 3.09)
+        fetch_performance.assert_called_once_with(
+            fund_id="ALZ60",
+            fund_code="0922",
+            market="海外",
+        )
+
     def test_api_returns_404_for_unknown_fund_code(self):
         app = self.load_app()
         from fastapi.testclient import TestClient
@@ -267,6 +508,30 @@ class ApiTests(unittest.TestCase):
             response = client.get("/api/funds/9999/nav")
 
         self.assertEqual(response.status_code, 404)
+
+    def test_api_returns_502_when_performance_source_fails(self):
+        app = self.load_app()
+        from fastapi.testclient import TestClient
+
+        client = TestClient(app.app)
+        fund = {
+            "market": "國內",
+            "fund_company": "中國信託投信",
+            "fund_id": "ACDS134",
+            "fund_name_main": "中國信託高評級策略收益債券基金",
+            "base_code": "BASE123",
+            "can_sell": "*",
+            "fund_code": "3916",
+            "fund_name": "",
+        }
+
+        with patch.object(app.database, "get_fund_by_code", return_value=fund), patch.object(
+            app.fetch_performance, "fetch_performance_for_fund", side_effect=ValueError("missing table")
+        ):
+            response = client.get("/api/funds/3916/performance")
+
+        self.assertEqual(response.status_code, 502)
+        self.assertIn("績效來源查詢失敗", response.json()["detail"])
 
     def test_api_returns_fund_profile_for_four_character_fund_code(self):
         app = self.load_app()

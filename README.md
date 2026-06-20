@@ -1,6 +1,6 @@
 # Fundscope Analytics
 
-本專案提供基金績效管理及預估的本機網站入口。第一版整合基金基本資料流程：基金清單由 Selenium 從 MoneyDJ/臺銀基金資訊頁抓取，輸出 CSV 並同步寫入 SQLite；網站使用 FastAPI 提供 API，前端可從「基本資料」選單更新基金清單，或輸入四碼基金代號查詢近一年逐日淨值。首頁也提供「投資設定」功能，可管理庫存基金、定期定額申購與單筆申購的投資組合設定。
+本專案提供基金績效管理及預估的本機網站入口。第一版整合基金基本資料流程：基金清單由 Selenium 從 MoneyDJ/臺銀基金資訊頁抓取，輸出 CSV 並同步寫入 SQLite；網站使用 FastAPI 提供 API，前端可從「基本資料」選單更新基金清單，或輸入四碼基金代號查詢近一年逐日淨值與臺銀績效資料。首頁也提供「投資設定」功能，可管理庫存基金、定期定額申購與單筆申購的投資組合設定。
 
 ## 專案結構
 
@@ -13,6 +13,7 @@ fundscope-analytics/
 │  ├─ app.py                      # FastAPI 網站後端與基金清單更新 API
 │  ├─ database.py                 # SQLite 建表、upsert、查詢
 │  ├─ fetch_nav.py                # 基金逐日淨值查詢與解析
+│  ├─ fetch_performance.py        # 基金績效查詢與解析
 │  ├─ static/                     # 前端 HTML/CSS/JS
 │  └─ tests/                      # unittest 測試
 ├─ requirements.txt
@@ -85,9 +86,9 @@ python -m uvicorn fundlist.app:app --host 127.0.0.1 --port 8000
 
 1. 開啟網站。
 2. 在首頁進入「基本資料 > 讀取基金清單」，更新 `db\funddata.db`。
-3. 進入「基本資料 > 基金淨值查詢」。
+3. 進入「基本資料 > 基金淨值查詢」或「基本資料 > 基金績效查詢」。
 4. 輸入四碼基金代號，例如 `0721`。
-5. 網站會顯示基金基本資料與近一年逐日淨值，日期由最新到最舊排列。
+5. 淨值查詢會顯示基金基本資料與近一年逐日淨值，日期由最新到最舊排列；績效查詢會顯示臺銀績效頁的基本績效與累積報酬率。
 6. 進入「投資設定」選單，可管理：
    - 「庫存基金設定」：基金代號與成本金額。
    - 「定期定額申購基金設定」：基金代號與每期預計申購金額。
@@ -113,6 +114,25 @@ http://127.0.0.1:8000/api/funds/0721/nav
 
 - `fund`：基金清單資料
 - `nav`：近一年逐日淨值、漲跌、漲跌幅
+
+查詢基金績效：
+
+```http
+GET /api/funds/{fund_code}/performance
+```
+
+範例：
+
+```text
+http://127.0.0.1:8000/api/funds/0922/performance
+```
+
+回傳內容包含：
+
+- `fund`：基金清單資料
+- `performance.summary`：基金、淨值、淨值日期、今年以來報酬率、年化標準差、Sharpe、β
+- `performance.cumulative_returns`：依來源頁實際欄位回傳的累積報酬率
+- `performance.source_url`：臺銀績效來源頁
 
 查詢單一基金基本資料：
 
@@ -167,5 +187,5 @@ DELETE /api/investment-settings/{setting_type}/{id}
 ```powershell
 cd D:\VIbeCoding\fundscope-analytics\fundlist
 python -m unittest discover -s tests -v
-python -m py_compile GetFundBackSiteToCsv.py database.py fetch_nav.py app.py tests\test_fullstack_backend.py
+python -m py_compile GetFundBackSiteToCsv.py database.py fetch_nav.py fetch_performance.py app.py tests\test_fullstack_backend.py
 ```
