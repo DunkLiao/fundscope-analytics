@@ -38,6 +38,18 @@ def init_db(db_path=DB_PATH):
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS fund_list_update_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                status TEXT NOT NULL,
+                message TEXT NOT NULL,
+                started_at TEXT,
+                finished_at TEXT,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
         conn.commit()
     finally:
         conn.close()
@@ -109,6 +121,52 @@ def get_fund_by_code(fund_code, db_path=DB_PATH):
             WHERE fund_code = ?
             """,
             (str(fund_code).strip().upper(),),
+        )
+        row = cursor.fetchone()
+        result = dict(row) if row else None
+        cursor.close()
+    finally:
+        conn.close()
+    return result
+
+
+def save_fund_list_update_status(status, message, started_at=None, finished_at=None, db_path=DB_PATH):
+    init_db(db_path)
+    created_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    conn = sqlite3.connect(Path(db_path))
+    try:
+        conn.execute(
+            """
+            INSERT INTO fund_list_update_runs (
+                status, message, started_at, finished_at, created_at
+            )
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                str(status).strip(),
+                str(message).strip(),
+                started_at,
+                finished_at,
+                created_at,
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_latest_fund_list_update_status(db_path=DB_PATH):
+    init_db(db_path)
+    conn = sqlite3.connect(Path(db_path))
+    try:
+        conn.row_factory = sqlite3.Row
+        cursor = conn.execute(
+            """
+            SELECT status, message, started_at, finished_at
+            FROM fund_list_update_runs
+            ORDER BY id DESC
+            LIMIT 1
+            """
         )
         row = cursor.fetchone()
         result = dict(row) if row else None

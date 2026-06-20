@@ -3,62 +3,148 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>基金淨值查詢</title>
+  <title>基金績效管理及預估</title>
+  <link rel="icon" href="data:,">
   <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
-  <main class="shell">
-    <section class="query-panel" aria-labelledby="page-title">
+  <header class="app-header">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">F</span>
       <div>
-        <p class="eyebrow">Fund NAV Lookup</p>
-        <h1 id="page-title">基金逐日淨值查詢</h1>
+        <p class="eyebrow">Fundscope Analytics</p>
+        <h1>基金績效管理及預估</h1>
       </div>
-      <form id="query-form" class="query-form">
-        <label for="fund-code">基金代號</label>
-        <div class="query-row">
-          <input id="fund-code" name="fund-code" autocomplete="off" maxlength="4" placeholder="例如 0721" required>
-          <button type="submit">查詢</button>
+    </div>
+    <nav class="top-nav" aria-label="主選單">
+      <button class="nav-button active" type="button" data-view="home">首頁</button>
+      <details class="nav-menu">
+        <summary>基本資料</summary>
+        <div class="menu-list">
+          <button type="button" data-view="nav-query">基金淨值查詢</button>
+          <button type="button" data-view="fund-list">讀取基金清單</button>
         </div>
-      </form>
-      <p id="message" class="message" role="status"></p>
+      </details>
+    </nav>
+  </header>
+
+  <main class="shell">
+    <section class="view active" data-view-panel="home" aria-labelledby="home-title">
+      <div class="hero-band">
+        <p class="eyebrow">Performance Management Workspace</p>
+        <h2 id="home-title">集中管理基金資料、績效追蹤與後續預估流程</h2>
+        <p class="lead">首頁先作為管理入口，基本資料功能已整合基金清單更新與逐日淨值查詢。</p>
+      </div>
+
+      <section class="module-grid" aria-label="功能入口">
+        <article class="module-card action-card" data-view="nav-query" tabindex="0">
+          <span class="module-kicker">基本資料</span>
+          <h3>基金淨值查詢</h3>
+          <p>依四碼基金代號查詢基金基本資料與近一年逐日淨值。</p>
+        </article>
+        <article class="module-card action-card" data-view="fund-list" tabindex="0">
+          <span class="module-kicker">基本資料</span>
+          <h3>讀取基金清單</h3>
+          <p>從站內啟動基金清單更新，寫入 CSV 與本機 SQLite 資料庫。</p>
+        </article>
+        <article class="module-card muted-card">
+          <span class="module-kicker">績效管理</span>
+          <h3>績效追蹤</h3>
+          <p>後續可接入報酬、波動、回撤與排名等管理指標。</p>
+          <span class="status-pill">規劃中</span>
+        </article>
+        <article class="module-card muted-card">
+          <span class="module-kicker">預估模型</span>
+          <h3>基金預估</h3>
+          <p>後續可建立淨值趨勢、風險情境與投資組合預估。</p>
+          <span class="status-pill">規劃中</span>
+        </article>
+      </section>
     </section>
 
-    <section id="fund-summary" class="summary" hidden>
-      <div>
-        <span class="label">基金代號</span>
-        <strong id="summary-code"></strong>
-      </div>
-      <div>
-        <span class="label">基金名稱</span>
-        <strong id="summary-name"></strong>
-      </div>
-      <div>
-        <span class="label">市場</span>
-        <strong id="summary-market"></strong>
-      </div>
-      <div>
-        <span class="label">查詢傳輸代號</span>
-        <strong id="summary-trans"></strong>
-      </div>
+    <section class="view" data-view-panel="nav-query" aria-labelledby="query-title">
+      <section class="query-panel">
+        <div>
+          <p class="eyebrow">Basic Data</p>
+          <h2 id="query-title">基金逐日淨值查詢</h2>
+        </div>
+        <form id="query-form" class="query-form">
+          <label for="fund-code">基金代號</label>
+          <div class="query-row">
+            <input id="fund-code" name="fund-code" autocomplete="off" maxlength="4" placeholder="例如 0721" required>
+            <button type="submit">查詢</button>
+          </div>
+        </form>
+        <p id="message" class="message" role="status"></p>
+      </section>
+
+      <section id="fund-summary" class="summary" hidden>
+        <div>
+          <span class="label">基金代號</span>
+          <strong id="summary-code"></strong>
+        </div>
+        <div>
+          <span class="label">基金名稱</span>
+          <strong id="summary-name"></strong>
+        </div>
+        <div>
+          <span class="label">市場</span>
+          <strong id="summary-market"></strong>
+        </div>
+        <div>
+          <span class="label">查詢傳輸代號</span>
+          <strong id="summary-trans"></strong>
+        </div>
+      </section>
+
+      <section class="table-section" aria-labelledby="table-title">
+        <h2 id="table-title">逐日淨值</h2>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>日期</th>
+                <th>淨值</th>
+                <th>漲/跌</th>
+                <th>漲跌幅(%)</th>
+              </tr>
+            </thead>
+            <tbody id="nav-body">
+              <tr><td colspan="4" class="empty">輸入基金代號後查詢</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
     </section>
 
-    <section class="table-section" aria-labelledby="table-title">
-      <h2 id="table-title">逐日淨值</h2>
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>日期</th>
-              <th>淨值</th>
-              <th>漲/跌</th>
-              <th>漲跌幅(%)</th>
-            </tr>
-          </thead>
-          <tbody id="nav-body">
-            <tr><td colspan="4" class="empty">輸入基金代號後查詢</td></tr>
-          </tbody>
-        </table>
-      </div>
+    <section class="view" data-view-panel="fund-list" aria-labelledby="fund-list-title">
+      <section class="update-panel">
+        <div>
+          <p class="eyebrow">Basic Data</p>
+          <h2 id="fund-list-title">讀取基金清單</h2>
+          <p class="lead">更新程序會讀取 MoneyDJ/臺銀基金資訊頁，並同步更新本機 CSV 與 SQLite。</p>
+        </div>
+        <button id="start-update" type="button">開始讀取基金清單</button>
+      </section>
+
+      <section class="status-board" aria-labelledby="status-title">
+        <h2 id="status-title">更新狀態</h2>
+        <dl class="status-grid">
+          <div>
+            <dt>狀態</dt>
+            <dd id="update-state">尚未讀取</dd>
+          </div>
+          <div>
+            <dt>開始時間</dt>
+            <dd id="update-started">-</dd>
+          </div>
+          <div>
+            <dt>完成時間</dt>
+            <dd id="update-finished">-</dd>
+          </div>
+        </dl>
+        <p id="update-message" class="message" role="status">尚未執行基金清單更新</p>
+      </section>
     </section>
   </main>
   <script src="/static/app.js"></script>

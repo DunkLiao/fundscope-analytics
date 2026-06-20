@@ -1,6 +1,7 @@
 import tempfile
 import unittest
 from datetime import date
+from importlib import reload
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -31,6 +32,26 @@ class DatabaseTests(unittest.TestCase):
             self.assertEqual(fund["fund_code"], "0721")
             self.assertEqual(fund["fund_id"], "FLZ21")
             self.assertEqual(fund["market"], "海外")
+
+    def test_save_and_get_latest_fund_list_update_status(self):
+        import database
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "funddata.db"
+            database.save_fund_list_update_status(
+                status="succeeded",
+                message="基金清單更新完成",
+                started_at="2026-06-20T04:14:56+00:00",
+                finished_at="2026-06-20T04:21:38+00:00",
+                db_path=db_path,
+            )
+
+            result = database.get_latest_fund_list_update_status(db_path)
+
+            self.assertEqual(result["status"], "succeeded")
+            self.assertEqual(result["message"], "基金清單更新完成")
+            self.assertEqual(result["started_at"], "2026-06-20T04:14:56+00:00")
+            self.assertEqual(result["finished_at"], "2026-06-20T04:21:38+00:00")
 
 
 class FetchNavTests(unittest.TestCase):
@@ -75,8 +96,15 @@ class FetchNavTests(unittest.TestCase):
 
 
 class ApiTests(unittest.TestCase):
-    def test_api_returns_nav_for_four_character_fund_code(self):
+    def load_app(self):
         import app
+
+        loaded_app = reload(app)
+        loaded_app.fund_list_update_status.update(loaded_app.DEFAULT_FUND_LIST_UPDATE_STATUS)
+        return loaded_app
+
+    def test_api_returns_nav_for_four_character_fund_code(self):
+        app = self.load_app()
         from fastapi.testclient import TestClient
 
         client = TestClient(app.app)
@@ -112,7 +140,7 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(payload["nav"][0]["nav"], 10.25)
 
     def test_api_returns_404_for_unknown_fund_code(self):
-        import app
+        app = self.load_app()
         from fastapi.testclient import TestClient
 
         client = TestClient(app.app)
@@ -122,13 +150,85 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 404)
 
     def test_api_rejects_invalid_fund_code_format(self):
-        import app
+        app = self.load_app()
         from fastapi.testclient import TestClient
 
         client = TestClient(app.app)
         response = client.get("/api/funds/12345/nav")
 
         self.assertEqual(response.status_code, 400)
+
+    def test_api_starts_fund_list_update_and_reports_success(self):
+        app = self.load_app()
+        from fastapi.testclient import TestClient
+
+        client = TestClient(app.app)
+        with patch.object(app.fund_list_updater, "main", return_value=None), patch.object(
+            app.database, "save_fund_list_update_status"
+        ) as save_status:
+            response = client.post("/api/fund-list/update")
+
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(response.json()["status"], "running")
+
+        status_response = client.get("/api/fund-list/update-status")
+        self.assertEqual(status_response.status_code, 200)
+        payload = status_response.json()
+        self.assertEqual(payload["status"], "succeeded")
+        self.assertEqual(payload["message"], "基金清單更新完成")
+        self.assertIsNotNone(payload["started_at"])
+        self.assertIsNotNone(payload["finished_at"])
+        self.assertEqual(save_status.call_count, 2)
+        self.assertEqual(save_status.call_args_list[-1].kwargs["status"], "succeeded")
+
+    def test_api_rejects_duplicate_fund_list_update_while_running(self):
+        app = self.load_app()
+        from fastapi.testclient import TestClient
+
+        app.fund_list_update_status["status"] = "running"
+        client = TestClient(app.app)
+        response = client.post("/api/fund-list/update")
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()["detail"], "基金清單更新已在執行中")
+
+    def test_api_reports_failed_fund_list_update(self):
+        app = self.load_app()
+        from fastapi.testclient import TestClient
+
+        client = TestClient(app.app)
+        with patch.object(app.fund_list_updater, "main", side_effect=RuntimeError("boom")), patch.object(
+            app.database, "save_fund_list_update_status"
+        ) as save_status:
+            response = client.post("/api/fund-list/update")
+
+        self.assertEqual(response.status_code, 202)
+
+        status_response = client.get("/api/fund-list/update-status")
+        payload = status_response.json()
+        self.assertEqual(payload["status"], "failed")
+        self.assertIn("boom", payload["message"])
+        self.assertIsNotNone(payload["finished_at"])
+        self.assertEqual(save_status.call_count, 2)
+        self.assertEqual(save_status.call_args_list[-1].kwargs["status"], "failed")
+
+    def test_api_loads_last_fund_list_update_status_from_database_after_reload(self):
+        app = self.load_app()
+        from fastapi.testclient import TestClient
+
+        saved = {
+            "status": "succeeded",
+            "message": "基金清單更新完成",
+            "started_at": "2026-06-20T04:14:56+00:00",
+            "finished_at": "2026-06-20T04:21:38+00:00",
+        }
+        with patch.object(app.database, "get_latest_fund_list_update_status", return_value=saved):
+            app = reload(app)
+            client = TestClient(app.app)
+            response = client.get("/api/fund-list/update-status")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), saved)
 
 
 if __name__ == "__main__":

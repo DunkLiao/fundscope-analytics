@@ -1,7 +1,10 @@
 import csv
 from pathlib import Path
 
-import database
+try:
+    from . import database
+except ImportError:
+    import database
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
