@@ -69,6 +69,15 @@ summary,
 
 h1,
 h2,
+h3,
+p {
+  line-break: anywhere;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+h1,
+h2,
 h3 {
   margin: 0;
   letter-spacing: 0;
@@ -174,6 +183,7 @@ h3 {
 .hero-band,
 .query-panel,
 .update-panel,
+.investment-panel,
 .table-section,
 .status-board {
   border: 1px solid #dfe4ef;
@@ -255,7 +265,16 @@ h3 {
   padding: 28px;
 }
 
-.query-form label {
+.investment-panel {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.9fr) minmax(420px, 1.1fr);
+  gap: 24px;
+  align-items: start;
+  padding: 28px;
+}
+
+.query-form label,
+.investment-form label {
   display: block;
   margin-bottom: 8px;
   color: #536172;
@@ -271,7 +290,9 @@ h3 {
 
 input,
 .query-row button,
-#start-update {
+#start-update,
+.form-actions button,
+.table-action {
   min-height: 44px;
 }
 
@@ -284,14 +305,18 @@ input {
 }
 
 .query-row button,
-#start-update {
+#start-update,
+.form-actions button,
+.table-action {
   padding: 0 18px;
   background: #15616d;
   color: #ffffff;
 }
 
 .query-row button:hover,
-#start-update:hover {
+#start-update:hover,
+.form-actions button:hover,
+.table-action:hover {
   background: #0f4c56;
 }
 
@@ -313,6 +338,64 @@ input {
 
 .message[data-type="success"] {
   color: #027a48;
+}
+
+.investment-form {
+  display: grid;
+  gap: 14px;
+}
+
+.investment-form input {
+  margin-top: 8px;
+}
+
+.fund-name-preview {
+  min-height: 70px;
+  padding: 14px;
+  border: 1px solid #dfe4ef;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.fund-name-preview strong {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.form-actions,
+.table-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.form-actions button,
+.table-action {
+  border: 0;
+  border-radius: 6px;
+  font-weight: 700;
+}
+
+.secondary-button {
+  background: #e7eef2 !important;
+  color: #243442 !important;
+}
+
+.secondary-button:hover {
+  background: #d8e3e8 !important;
+}
+
+.table-action {
+  min-height: 36px;
+  padding: 0 12px;
+}
+
+.table-action.danger {
+  background: #b42318;
+}
+
+.table-action.danger:hover {
+  background: #8f1c13;
 }
 
 .summary {
@@ -424,7 +507,8 @@ th {
   }
 
   .query-panel,
-  .update-panel {
+  .update-panel,
+  .investment-panel {
     grid-template-columns: 1fr;
   }
 }
@@ -439,11 +523,18 @@ th {
   }
 
   h1 {
-    font-size: 19px;
+    font-size: 18px;
   }
 
   h2 {
-    font-size: 24px;
+    font-size: 22px;
+  }
+
+  h1,
+  h2,
+  h3,
+  p {
+    word-break: break-all;
   }
 
   .top-nav,
@@ -455,16 +546,32 @@ th {
 
   .top-nav {
     align-items: stretch;
+    flex-direction: column;
+    gap: 8px;
   }
 
   .nav-menu {
     position: static;
   }
 
+  .nav-menu summary {
+    min-height: 44px;
+  }
+
   .menu-list {
-    left: 0;
-    right: auto;
+    position: static;
+    min-width: 0;
     width: 100%;
+    margin-top: 6px;
+    box-shadow: none;
+  }
+
+  .nav-menu:not([open]) .menu-list {
+    display: none;
+  }
+
+  .nav-menu[open] .menu-list {
+    display: grid;
   }
 
   .shell {
@@ -475,6 +582,7 @@ th {
   .hero-band,
   .query-panel,
   .update-panel,
+  .investment-panel,
   .table-section,
   .status-board {
     padding: 18px;
@@ -488,5 +596,79 @@ th {
 
   .query-row {
     grid-template-columns: 1fr;
+  }
+
+  .investment-table {
+    min-width: 0;
+  }
+
+  .investment-table thead {
+    display: none;
+  }
+
+  .investment-table,
+  .investment-table tbody,
+  .investment-table tr,
+  .investment-table td {
+    display: block;
+    width: 100%;
+  }
+
+  .investment-table tbody {
+    display: grid;
+    gap: 12px;
+  }
+
+  .investment-table tr {
+    border: 1px solid #dfe4ef;
+    border-radius: 8px;
+    background: #ffffff;
+    overflow: hidden;
+  }
+
+  .investment-table td {
+    min-width: 0;
+    padding: 12px 14px;
+    border-bottom: 1px solid #edf0f5;
+    text-align: left;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .investment-table td::before {
+    display: block;
+    margin-bottom: 6px;
+    color: #536172;
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  .investment-table td:nth-child(1)::before {
+    content: "基金代號";
+  }
+
+  .investment-table td:nth-child(2)::before {
+    content: "基金名稱";
+  }
+
+  .investment-table td:nth-child(3)::before {
+    content: "金額";
+  }
+
+  .investment-table td:nth-child(4) {
+    border-bottom: 0;
+  }
+
+  .investment-table td:nth-child(4)::before {
+    content: "操作";
+  }
+
+  .investment-table .table-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .investment-table .table-action {
+    width: 100%;
   }
 }

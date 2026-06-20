@@ -2,7 +2,7 @@ const viewButtons = document.querySelectorAll("[data-view]");
 const viewPanels = document.querySelectorAll("[data-view-panel]");
 const navButtons = document.querySelectorAll(".nav-button, .menu-list button");
 const actionCards = document.querySelectorAll(".action-card");
-const navMenu = document.querySelector(".nav-menu");
+const navMenus = document.querySelectorAll(".nav-menu");
 
 const form = document.querySelector("#query-form");
 const input = document.querySelector("#fund-code");
@@ -15,6 +15,7 @@ const updateState = document.querySelector("#update-state");
 const updateStarted = document.querySelector("#update-started");
 const updateFinished = document.querySelector("#update-finished");
 const updateMessage = document.querySelector("#update-message");
+const investmentViews = document.querySelectorAll(".investment-view");
 
 let updatePollTimer = null;
 
@@ -32,6 +33,44 @@ const updateStateLabels = {
   failed: "失敗",
 };
 
+const investmentLabels = {
+  holdings: {
+    empty: "尚未建立庫存基金設定",
+    saved: "庫存基金設定已儲存",
+    deleted: "庫存基金設定已刪除",
+  },
+  recurring: {
+    empty: "尚未建立定期定額申購基金設定",
+    saved: "定期定額申購基金設定已儲存",
+    deleted: "定期定額申購基金設定已刪除",
+  },
+  "lump-sum": {
+    empty: "尚未建立單筆申購設定",
+    saved: "單筆申購設定已儲存",
+    deleted: "單筆申購設定已刪除",
+  },
+};
+
+const investmentStates = {};
+
+investmentViews.forEach((view) => {
+  const type = view.dataset.settingType;
+  investmentStates[type] = {
+    type,
+    view,
+    form: view.querySelector(".investment-form"),
+    idInput: view.querySelector('input[name="setting-id"]'),
+    codeInput: view.querySelector(".investment-code"),
+    amountInput: view.querySelector(".investment-amount"),
+    fundName: view.querySelector(".investment-fund-name"),
+    message: view.querySelector(".investment-message"),
+    cancelButton: view.querySelector('[data-action="cancel-edit"]'),
+    body: view.querySelector(".investment-body"),
+    items: [],
+    lookupSeq: 0,
+  };
+});
+
 function switchView(viewName) {
   viewPanels.forEach((panel) => {
     panel.classList.toggle("active", panel.dataset.viewPanel === viewName);
@@ -43,6 +82,11 @@ function switchView(viewName) {
 
   if (viewName === "fund-list") {
     refreshUpdateStatus();
+  }
+
+  const investmentPanel = document.querySelector(`[data-view-panel="${viewName}"].investment-view`);
+  if (investmentPanel) {
+    refreshInvestmentSettings(investmentPanel.dataset.settingType);
   }
 }
 
@@ -66,6 +110,21 @@ function formatTime(value) {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return value;
   return parsed.toLocaleString("zh-TW", { hour12: false });
+}
+
+function formatCurrency(value) {
+  const amount = Number(value);
+  if (!Number.isFinite(amount)) return "-";
+  return amount.toLocaleString("zh-TW");
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
 }
 
 function renderSummary(fund) {
@@ -124,6 +183,56 @@ async function getFundListUpdateStatus() {
   return payload;
 }
 
+async function getFundProfile(code) {
+  const response = await fetch(`/api/funds/${encodeURIComponent(code)}`);
+  const payload = await response.json();
+  if (!response.ok) {
+    throw new Error(payload.detail || "無法取得基金名稱");
+  }
+  return payload;
+}
+
+async function getInvestmentSettings(type) {
+  const response = await fetch(`/api/investment-settings/${encodeURIComponent(type)}`);
+  const payload = await response.json();
+  if (!response.ok) {
+    throw new Error(payload.detail || "無法取得投資設定");
+  }
+  return payload;
+}
+
+async function saveInvestmentSetting(type, id, data) {
+  const url = id
+    ? `/api/investment-settings/${encodeURIComponent(type)}/${encodeURIComponent(id)}`
+    : `/api/investment-settings/${encodeURIComponent(type)}`;
+  const response = await fetch(url, {
+    method: id ? "PUT" : "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  const payload = await response.json();
+  if (!response.ok) {
+    throw new Error(payload.detail || "無法儲存投資設定");
+  }
+  return payload;
+}
+
+async function deleteInvestmentSetting(type, id) {
+  const response = await fetch(`/api/investment-settings/${encodeURIComponent(type)}/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+  if (!response.ok) {
+    let message = "無法刪除投資設定";
+    try {
+      const payload = await response.json();
+      message = payload.detail || message;
+    } catch {
+      // Keep the generic message when the server returns no JSON body.
+    }
+    throw new Error(message);
+  }
+}
+
 function renderUpdateStatus(payload) {
   const status = payload.status || "idle";
   updateState.textContent = updateStateLabels[status] || status;
@@ -144,6 +253,153 @@ function renderUpdateStatus(payload) {
   }
 }
 
+function setInvestmentMessage(state, text, type = "") {
+  state.message.textContent = text;
+  state.message.dataset.type = type;
+}
+
+function resetInvestmentForm(state) {
+  state.form.reset();
+  state.idInput.value = "";
+  state.fundName.textContent = "輸入基金代號後自動帶出";
+  state.cancelButton.hidden = true;
+}
+
+function renderInvestmentRows(state) {
+  if (!state.items.length) {
+    state.body.innerHTML = `<tr><td colspan="4" class="empty">${investmentLabels[state.type].empty}</td></tr>`;
+    return;
+  }
+
+  state.body.innerHTML = state.items
+    .map(
+      (item) => `
+        <tr>
+          <td>${escapeHtml(item.fund_code)}</td>
+          <td>${escapeHtml(item.fund_name || "-")}</td>
+          <td>${formatCurrency(item.amount)}</td>
+          <td>
+            <div class="table-actions">
+              <button class="table-action" type="button" data-action="edit" data-id="${item.id}">編輯</button>
+              <button class="table-action danger" type="button" data-action="delete" data-id="${item.id}">刪除</button>
+            </div>
+          </td>
+        </tr>
+      `
+    )
+    .join("");
+}
+
+async function refreshInvestmentSettings(type) {
+  const state = investmentStates[type];
+  if (!state) return;
+  setInvestmentMessage(state, "讀取中...", "loading");
+
+  try {
+    state.items = await getInvestmentSettings(type);
+    renderInvestmentRows(state);
+    setInvestmentMessage(state, `已載入 ${state.items.length} 筆設定`, "success");
+  } catch (error) {
+    state.body.innerHTML = '<tr><td colspan="4" class="empty">無法顯示投資設定</td></tr>';
+    setInvestmentMessage(state, error.message, "error");
+  }
+}
+
+async function lookupInvestmentFundName(state) {
+  const code = state.codeInput.value.trim().toUpperCase();
+  state.codeInput.value = code;
+  state.lookupSeq += 1;
+  const seq = state.lookupSeq;
+
+  if (!code) {
+    state.fundName.textContent = "輸入基金代號後自動帶出";
+    return;
+  }
+
+  if (!/^[A-Z0-9]{4}$/.test(code)) {
+    state.fundName.textContent = "基金代號必須是四碼英數字";
+    return;
+  }
+
+  state.fundName.textContent = "查找中...";
+
+  try {
+    const fund = await getFundProfile(code);
+    if (seq !== state.lookupSeq) return;
+    state.fundName.textContent = fund.fund_name_main || fund.fund_name || "-";
+  } catch (error) {
+    if (seq !== state.lookupSeq) return;
+    state.fundName.textContent = error.message;
+  }
+}
+
+async function handleInvestmentSubmit(state, event) {
+  event.preventDefault();
+  const code = state.codeInput.value.trim().toUpperCase();
+  const amountText = state.amountInput.value.trim();
+
+  if (!/^[A-Z0-9]{4}$/.test(code)) {
+    setInvestmentMessage(state, "基金代號必須是四碼英數字", "error");
+    state.codeInput.focus();
+    return;
+  }
+
+  if (!/^[1-9]\d*$/.test(amountText)) {
+    setInvestmentMessage(state, "投資金額必須是大於 0 的整數", "error");
+    state.amountInput.focus();
+    return;
+  }
+
+  setInvestmentMessage(state, "儲存中...", "loading");
+
+  try {
+    await saveInvestmentSetting(state.type, state.idInput.value, {
+      fund_code: code,
+      amount: Number(amountText),
+    });
+    resetInvestmentForm(state);
+    await refreshInvestmentSettings(state.type);
+    setInvestmentMessage(state, investmentLabels[state.type].saved, "success");
+  } catch (error) {
+    setInvestmentMessage(state, error.message, "error");
+  }
+}
+
+function startInvestmentEdit(state, id) {
+  const item = state.items.find((row) => String(row.id) === String(id));
+  if (!item) return;
+  state.idInput.value = item.id;
+  state.codeInput.value = item.fund_code;
+  state.amountInput.value = item.amount;
+  state.fundName.textContent = item.fund_name || "-";
+  state.cancelButton.hidden = false;
+  setInvestmentMessage(state, "編輯中", "");
+  state.codeInput.focus();
+}
+
+async function handleInvestmentTableAction(state, event) {
+  const button = event.target.closest("button[data-action]");
+  if (!button) return;
+
+  const id = button.dataset.id;
+  if (button.dataset.action === "edit") {
+    startInvestmentEdit(state, id);
+    return;
+  }
+
+  if (button.dataset.action !== "delete") return;
+  if (!window.confirm("確定要刪除此筆投資設定？")) return;
+
+  setInvestmentMessage(state, "刪除中...", "loading");
+  try {
+    await deleteInvestmentSetting(state.type, id);
+    await refreshInvestmentSettings(state.type);
+    setInvestmentMessage(state, investmentLabels[state.type].deleted, "success");
+  } catch (error) {
+    setInvestmentMessage(state, error.message, "error");
+  }
+}
+
 async function refreshUpdateStatus() {
   try {
     const payload = await getFundListUpdateStatus();
@@ -156,8 +412,10 @@ async function refreshUpdateStatus() {
 viewButtons.forEach((button) => {
   button.addEventListener("click", () => {
     switchView(button.dataset.view);
-    if (button.closest(".menu-list") && navMenu) {
-      navMenu.open = false;
+    if (button.closest(".menu-list")) {
+      navMenus.forEach((menu) => {
+        menu.open = false;
+      });
     }
   });
 });
@@ -207,4 +465,18 @@ startUpdateButton.addEventListener("click", async () => {
     startUpdateButton.disabled = false;
     setUpdateMessage(`${error.message}；也可改用根目錄的 update_fundlist.bat`, "error");
   }
+});
+
+Object.values(investmentStates).forEach((state) => {
+  state.form.addEventListener("submit", (event) => handleInvestmentSubmit(state, event));
+  state.codeInput.addEventListener("input", () => {
+    lookupInvestmentFundName(state);
+  });
+  state.cancelButton.addEventListener("click", () => {
+    resetInvestmentForm(state);
+    setInvestmentMessage(state, "", "");
+  });
+  state.body.addEventListener("click", (event) => {
+    handleInvestmentTableAction(state, event);
+  });
 });

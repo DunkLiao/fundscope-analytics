@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from threading import Lock
 
-from fastapi import BackgroundTasks, FastAPI, HTTPException
+from fastapi import BackgroundTasks, Body, FastAPI, HTTPException, Response
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -37,6 +37,46 @@ fund_list_update_status = (
 
 def utc_now_text():
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def normalize_fund_code(fund_code):
+    normalized_code = str(fund_code).strip().upper()
+    if not FUND_CODE_RE.fullmatch(normalized_code):
+        raise HTTPException(status_code=400, detail="基金代號必須是四碼英數字")
+    return normalized_code
+
+
+def parse_investment_setting_payload(payload):
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="請提供投資設定資料")
+
+    fund_code = normalize_fund_code(payload.get("fund_code", ""))
+    amount = payload.get("amount")
+
+    if isinstance(amount, bool):
+        raise HTTPException(status_code=400, detail="投資金額必須是大於 0 的整數")
+    if isinstance(amount, int):
+        normalized_amount = amount
+    elif isinstance(amount, str) and amount.strip().isdigit():
+        normalized_amount = int(amount.strip())
+    else:
+        raise HTTPException(status_code=400, detail="投資金額必須是大於 0 的整數")
+
+    if normalized_amount <= 0:
+        raise HTTPException(status_code=400, detail="投資金額必須是大於 0 的整數")
+
+    return fund_code, normalized_amount
+
+
+def raise_investment_setting_error(exc):
+    message = str(exc)
+    if "已存在" in message:
+        raise HTTPException(status_code=409, detail=message) from exc
+    if "找不到" in message:
+        raise HTTPException(status_code=404, detail=message) from exc
+    if "未知的投資設定類型" in message:
+        raise HTTPException(status_code=404, detail=message) from exc
+    raise HTTPException(status_code=400, detail=message) from exc
 
 
 def get_fund_list_update_status():
@@ -110,11 +150,18 @@ def read_fund_list_update_status():
     return get_fund_list_update_status()
 
 
+@app.get("/api/funds/{fund_code}")
+def get_fund_profile(fund_code):
+    normalized_code = normalize_fund_code(fund_code)
+    fund = database.get_fund_by_code(normalized_code)
+    if fund is None:
+        raise HTTPException(status_code=404, detail="找不到此基金代號，請先更新基金清單")
+    return fund
+
+
 @app.get("/api/funds/{fund_code}/nav")
 def get_fund_nav(fund_code):
-    normalized_code = fund_code.strip().upper()
-    if not FUND_CODE_RE.fullmatch(normalized_code):
-        raise HTTPException(status_code=400, detail="基金代號必須是四碼英數字")
+    normalized_code = normalize_fund_code(fund_code)
 
     fund = database.get_fund_by_code(normalized_code)
     if fund is None:
@@ -132,3 +179,41 @@ def get_fund_nav(fund_code):
         raise HTTPException(status_code=502, detail=f"淨值來源查詢失敗：{exc}") from exc
 
     return {"fund": fund, "nav": nav_rows}
+
+
+@app.get("/api/investment-settings/{setting_type}")
+def list_investment_settings(setting_type):
+    try:
+        return database.list_investment_settings(setting_type)
+    except ValueError as exc:
+        raise_investment_setting_error(exc)
+
+
+@app.post("/api/investment-settings/{setting_type}", status_code=201)
+def create_investment_setting(setting_type, payload=Body(...)):
+    fund_code, amount = parse_investment_setting_payload(payload)
+    try:
+        return database.create_investment_setting(setting_type, fund_code, amount)
+    except ValueError as exc:
+        raise_investment_setting_error(exc)
+
+
+@app.put("/api/investment-settings/{setting_type}/{row_id}")
+def update_investment_setting(setting_type, row_id: int, payload=Body(...)):
+    fund_code, amount = parse_investment_setting_payload(payload)
+    try:
+        return database.update_investment_setting(setting_type, row_id, fund_code, amount)
+    except ValueError as exc:
+        raise_investment_setting_error(exc)
+
+
+@app.delete("/api/investment-settings/{setting_type}/{row_id}", status_code=204)
+def delete_investment_setting(setting_type, row_id: int):
+    try:
+        deleted = database.delete_investment_setting(setting_type, row_id)
+    except ValueError as exc:
+        raise_investment_setting_error(exc)
+
+    if not deleted:
+        raise HTTPException(status_code=404, detail="找不到投資設定資料")
+    return Response(status_code=204)

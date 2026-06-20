@@ -25,6 +25,14 @@
           <button type="button" data-view="fund-list">讀取基金清單</button>
         </div>
       </details>
+      <details class="nav-menu">
+        <summary>投資設定</summary>
+        <div class="menu-list">
+          <button type="button" data-view="investment-holdings">庫存基金設定</button>
+          <button type="button" data-view="investment-recurring">定期定額申購基金設定</button>
+          <button type="button" data-view="investment-lump-sum">單筆申購設定</button>
+        </div>
+      </details>
     </nav>
   </header>
 
@@ -47,17 +55,20 @@
           <h3>讀取基金清單</h3>
           <p>從站內啟動基金清單更新，寫入 CSV 與本機 SQLite 資料庫。</p>
         </article>
-        <article class="module-card muted-card">
-          <span class="module-kicker">績效管理</span>
-          <h3>績效追蹤</h3>
-          <p>後續可接入報酬、波動、回撤與排名等管理指標。</p>
-          <span class="status-pill">規劃中</span>
+        <article class="module-card action-card" data-view="investment-holdings" tabindex="0">
+          <span class="module-kicker">投資設定</span>
+          <h3>庫存基金設定</h3>
+          <p>管理目前持有基金與逐筆成本金額。</p>
         </article>
-        <article class="module-card muted-card">
-          <span class="module-kicker">預估模型</span>
-          <h3>基金預估</h3>
-          <p>後續可建立淨值趨勢、風險情境與投資組合預估。</p>
-          <span class="status-pill">規劃中</span>
+        <article class="module-card action-card" data-view="investment-recurring" tabindex="0">
+          <span class="module-kicker">投資設定</span>
+          <h3>定期定額申購基金設定</h3>
+          <p>設定預計定期定額申購基金與每期金額。</p>
+        </article>
+        <article class="module-card action-card" data-view="investment-lump-sum" tabindex="0">
+          <span class="module-kicker">投資設定</span>
+          <h3>單筆申購設定</h3>
+          <p>設定預計單筆申購基金與單次申購金額。</p>
         </article>
       </section>
     </section>
@@ -144,6 +155,153 @@
           </div>
         </dl>
         <p id="update-message" class="message" role="status">尚未執行基金清單更新</p>
+      </section>
+    </section>
+
+    <section class="view investment-view" data-view-panel="investment-holdings" data-setting-type="holdings" aria-labelledby="holdings-title">
+      <section class="investment-panel">
+        <div>
+          <p class="eyebrow">Investment Settings</p>
+          <h2 id="holdings-title">庫存基金設定</h2>
+          <p class="lead">輸入目前持有的基金代號，系統會自動帶出基金名稱，並保存逐筆成本金額。</p>
+        </div>
+        <form class="investment-form" data-setting-type="holdings">
+          <input type="hidden" name="setting-id">
+          <label>
+            基金代號
+            <input name="fund-code" class="investment-code" autocomplete="off" maxlength="4" placeholder="例如 0721" required>
+          </label>
+          <div class="fund-name-preview">
+            <span class="label">基金名稱</span>
+            <strong class="investment-fund-name">輸入基金代號後自動帶出</strong>
+          </div>
+          <label>
+            成本金額
+            <input name="amount" class="investment-amount" inputmode="numeric" placeholder="例如 120000" required>
+          </label>
+          <div class="form-actions">
+            <button type="submit">儲存</button>
+            <button type="button" class="secondary-button" data-action="cancel-edit" hidden>取消編輯</button>
+          </div>
+          <p class="message investment-message" role="status"></p>
+        </form>
+      </section>
+
+      <section class="table-section" aria-labelledby="holdings-table-title">
+        <h2 id="holdings-table-title">庫存基金清單</h2>
+        <div class="table-wrap">
+          <table class="investment-table">
+            <thead>
+              <tr>
+                <th>基金代號</th>
+                <th>基金名稱</th>
+                <th>成本金額</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody class="investment-body">
+              <tr><td colspan="4" class="empty">尚未建立庫存基金設定</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </section>
+
+    <section class="view investment-view" data-view-panel="investment-recurring" data-setting-type="recurring" aria-labelledby="recurring-title">
+      <section class="investment-panel">
+        <div>
+          <p class="eyebrow">Investment Settings</p>
+          <h2 id="recurring-title">定期定額申購基金設定</h2>
+          <p class="lead">輸入預計定期定額申購的基金代號，並設定每期預計申購金額。</p>
+        </div>
+        <form class="investment-form" data-setting-type="recurring">
+          <input type="hidden" name="setting-id">
+          <label>
+            基金代號
+            <input name="fund-code" class="investment-code" autocomplete="off" maxlength="4" placeholder="例如 0721" required>
+          </label>
+          <div class="fund-name-preview">
+            <span class="label">基金名稱</span>
+            <strong class="investment-fund-name">輸入基金代號後自動帶出</strong>
+          </div>
+          <label>
+            每期定期定額預計申購金額
+            <input name="amount" class="investment-amount" inputmode="numeric" placeholder="例如 3000" required>
+          </label>
+          <div class="form-actions">
+            <button type="submit">儲存</button>
+            <button type="button" class="secondary-button" data-action="cancel-edit" hidden>取消編輯</button>
+          </div>
+          <p class="message investment-message" role="status"></p>
+        </form>
+      </section>
+
+      <section class="table-section" aria-labelledby="recurring-table-title">
+        <h2 id="recurring-table-title">定期定額申購清單</h2>
+        <div class="table-wrap">
+          <table class="investment-table">
+            <thead>
+              <tr>
+                <th>基金代號</th>
+                <th>基金名稱</th>
+                <th>每期預計申購金額</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody class="investment-body">
+              <tr><td colspan="4" class="empty">尚未建立定期定額申購基金設定</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </section>
+
+    <section class="view investment-view" data-view-panel="investment-lump-sum" data-setting-type="lump-sum" aria-labelledby="lump-sum-title">
+      <section class="investment-panel">
+        <div>
+          <p class="eyebrow">Investment Settings</p>
+          <h2 id="lump-sum-title">單筆申購設定</h2>
+          <p class="lead">輸入預計單筆申購的基金代號，並設定單次申購金額。</p>
+        </div>
+        <form class="investment-form" data-setting-type="lump-sum">
+          <input type="hidden" name="setting-id">
+          <label>
+            基金代號
+            <input name="fund-code" class="investment-code" autocomplete="off" maxlength="4" placeholder="例如 0721" required>
+          </label>
+          <div class="fund-name-preview">
+            <span class="label">基金名稱</span>
+            <strong class="investment-fund-name">輸入基金代號後自動帶出</strong>
+          </div>
+          <label>
+            單次申購金額
+            <input name="amount" class="investment-amount" inputmode="numeric" placeholder="例如 100000" required>
+          </label>
+          <div class="form-actions">
+            <button type="submit">儲存</button>
+            <button type="button" class="secondary-button" data-action="cancel-edit" hidden>取消編輯</button>
+          </div>
+          <p class="message investment-message" role="status"></p>
+        </form>
+      </section>
+
+      <section class="table-section" aria-labelledby="lump-sum-table-title">
+        <h2 id="lump-sum-table-title">單筆申購清單</h2>
+        <div class="table-wrap">
+          <table class="investment-table">
+            <thead>
+              <tr>
+                <th>基金代號</th>
+                <th>基金名稱</th>
+                <th>單次申購金額</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody class="investment-body">
+              <tr><td colspan="4" class="empty">尚未建立單筆申購設定</td></tr>
+            </tbody>
+          </table>
+        </div>
       </section>
     </section>
   </main>

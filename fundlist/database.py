@@ -17,6 +17,21 @@ FUND_FIELDS = [
     "fund_name",
 ]
 
+INVESTMENT_SETTING_TYPES = {
+    "holdings": {
+        "table": "holding_fund_settings",
+        "amount_column": "cost_amount",
+    },
+    "recurring": {
+        "table": "recurring_fund_settings",
+        "amount_column": "periodic_amount",
+    },
+    "lump-sum": {
+        "table": "lump_sum_fund_settings",
+        "amount_column": "single_amount",
+    },
+}
+
 
 def init_db(db_path=DB_PATH):
     path = Path(db_path)
@@ -50,9 +65,181 @@ def init_db(db_path=DB_PATH):
             )
             """
         )
+        for config in INVESTMENT_SETTING_TYPES.values():
+            conn.execute(
+                f"""
+                CREATE TABLE IF NOT EXISTS {config["table"]} (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    fund_code TEXT NOT NULL UNIQUE,
+                    {config["amount_column"]} INTEGER NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+                """
+            )
         conn.commit()
     finally:
         conn.close()
+
+
+def _investment_config(setting_type):
+    try:
+        return INVESTMENT_SETTING_TYPES[str(setting_type).strip()]
+    except KeyError as exc:
+        raise ValueError("未知的投資設定類型") from exc
+
+
+def _normalize_fund_code(fund_code):
+    return str(fund_code).strip().upper()
+
+
+def _coerce_positive_int(value):
+    if isinstance(value, bool):
+        raise ValueError("投資金額必須是大於 0 的整數")
+    if isinstance(value, int):
+        amount = value
+    elif isinstance(value, str) and value.strip().isdigit():
+        amount = int(value.strip())
+    else:
+        raise ValueError("投資金額必須是大於 0 的整數")
+
+    if amount <= 0:
+        raise ValueError("投資金額必須是大於 0 的整數")
+    return amount
+
+
+def _utc_now_text():
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def _ensure_fund_exists(fund_code, db_path):
+    normalized_code = _normalize_fund_code(fund_code)
+    if get_fund_by_code(normalized_code, db_path) is None:
+        raise ValueError("找不到此基金代號，請先更新基金清單")
+    return normalized_code
+
+
+def _fetch_investment_setting(setting_type, row_id, db_path):
+    config = _investment_config(setting_type)
+    conn = sqlite3.connect(Path(db_path))
+    try:
+        conn.row_factory = sqlite3.Row
+        cursor = conn.execute(
+            f"""
+            SELECT
+                s.id,
+                s.fund_code,
+                COALESCE(NULLIF(f.fund_name_main, ''), NULLIF(f.fund_name, ''), '') AS fund_name,
+                s.{config["amount_column"]} AS amount,
+                s.created_at,
+                s.updated_at
+            FROM {config["table"]} AS s
+            LEFT JOIN funds AS f ON f.fund_code = s.fund_code
+            WHERE s.id = ?
+            """,
+            (int(row_id),),
+        )
+        row = cursor.fetchone()
+        result = dict(row) if row else None
+        cursor.close()
+    finally:
+        conn.close()
+    return result
+
+
+def list_investment_settings(setting_type, db_path=DB_PATH):
+    init_db(db_path)
+    config = _investment_config(setting_type)
+    conn = sqlite3.connect(Path(db_path))
+    try:
+        conn.row_factory = sqlite3.Row
+        cursor = conn.execute(
+            f"""
+            SELECT
+                s.id,
+                s.fund_code,
+                COALESCE(NULLIF(f.fund_name_main, ''), NULLIF(f.fund_name, ''), '') AS fund_name,
+                s.{config["amount_column"]} AS amount,
+                s.created_at,
+                s.updated_at
+            FROM {config["table"]} AS s
+            LEFT JOIN funds AS f ON f.fund_code = s.fund_code
+            ORDER BY s.id
+            """
+        )
+        result = [dict(row) for row in cursor.fetchall()]
+        cursor.close()
+    finally:
+        conn.close()
+    return result
+
+
+def create_investment_setting(setting_type, fund_code, amount, db_path=DB_PATH):
+    init_db(db_path)
+    config = _investment_config(setting_type)
+    normalized_code = _ensure_fund_exists(fund_code, db_path)
+    normalized_amount = _coerce_positive_int(amount)
+    timestamp = _utc_now_text()
+    conn = sqlite3.connect(Path(db_path))
+    try:
+        cursor = conn.execute(
+            f"""
+            INSERT INTO {config["table"]} (
+                fund_code, {config["amount_column"]}, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?)
+            """,
+            (normalized_code, normalized_amount, timestamp, timestamp),
+        )
+        conn.commit()
+        row_id = cursor.lastrowid
+    except sqlite3.IntegrityError as exc:
+        raise ValueError("基金代號已存在於此投資設定") from exc
+    finally:
+        conn.close()
+    return _fetch_investment_setting(setting_type, row_id, db_path)
+
+
+def update_investment_setting(setting_type, row_id, fund_code, amount, db_path=DB_PATH):
+    init_db(db_path)
+    config = _investment_config(setting_type)
+    normalized_code = _ensure_fund_exists(fund_code, db_path)
+    normalized_amount = _coerce_positive_int(amount)
+    timestamp = _utc_now_text()
+    conn = sqlite3.connect(Path(db_path))
+    try:
+        cursor = conn.execute(
+            f"""
+            UPDATE {config["table"]}
+            SET fund_code = ?, {config["amount_column"]} = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (normalized_code, normalized_amount, timestamp, int(row_id)),
+        )
+        conn.commit()
+        if cursor.rowcount == 0:
+            raise ValueError("找不到投資設定資料")
+    except sqlite3.IntegrityError as exc:
+        raise ValueError("基金代號已存在於此投資設定") from exc
+    finally:
+        conn.close()
+    return _fetch_investment_setting(setting_type, row_id, db_path)
+
+
+def delete_investment_setting(setting_type, row_id, db_path=DB_PATH):
+    init_db(db_path)
+    config = _investment_config(setting_type)
+    conn = sqlite3.connect(Path(db_path))
+    try:
+        cursor = conn.execute(
+            f"DELETE FROM {config['table']} WHERE id = ?",
+            (int(row_id),),
+        )
+        conn.commit()
+        deleted = cursor.rowcount > 0
+    finally:
+        conn.close()
+    return deleted
 
 
 def upsert_funds(rows, db_path=DB_PATH):
