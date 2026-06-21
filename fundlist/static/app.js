@@ -75,9 +75,14 @@ investmentViews.forEach((view) => {
     type,
     view,
     form: view.querySelector(".investment-form"),
-    idInput: view.querySelector('input[name="setting-id"]'),
+    idInput: view.querySelector('input[name="record-id"]'),
     codeInput: view.querySelector(".investment-code"),
     amountInput: view.querySelector(".investment-amount"),
+    dateInput: view.querySelector(".investment-date"),
+    unitsInput: view.querySelector(".investment-units"),
+    startDateInput: view.querySelector(".investment-start-date"),
+    endDateInput: view.querySelector(".investment-end-date"),
+    daysInput: view.querySelector(".investment-days"),
     fundName: view.querySelector(".investment-fund-name"),
     message: view.querySelector(".investment-message"),
     cancelButton: view.querySelector('[data-action="cancel-edit"]'),
@@ -282,18 +287,25 @@ async function getFundProfile(code) {
 }
 
 async function getInvestmentSettings(type) {
-  const response = await fetch(`/api/investment-settings/${encodeURIComponent(type)}`);
+  const url = type === "recurring"
+    ? "/api/investments/recurring/plans"
+    : `/api/investments/${encodeURIComponent(type)}/transactions`;
+  const response = await fetch(url);
   const payload = await response.json();
   if (!response.ok) {
-    throw new Error(payload.detail || "無法取得投資設定");
+    throw new Error(payload.detail || "無法取得投資資料");
   }
   return payload;
 }
 
 async function saveInvestmentSetting(type, id, data) {
-  const url = id
-    ? `/api/investment-settings/${encodeURIComponent(type)}/${encodeURIComponent(id)}`
-    : `/api/investment-settings/${encodeURIComponent(type)}`;
+  const url = type === "recurring"
+    ? id
+      ? `/api/investments/recurring/plans/${encodeURIComponent(id)}`
+      : "/api/investments/recurring/plans"
+    : id
+      ? `/api/investments/${encodeURIComponent(type)}/transactions/${encodeURIComponent(id)}`
+      : `/api/investments/${encodeURIComponent(type)}/transactions`;
   const response = await fetch(url, {
     method: id ? "PUT" : "POST",
     headers: { "Content-Type": "application/json" },
@@ -301,13 +313,16 @@ async function saveInvestmentSetting(type, id, data) {
   });
   const payload = await response.json();
   if (!response.ok) {
-    throw new Error(payload.detail || "無法儲存投資設定");
+    throw new Error(payload.detail || "無法儲存投資資料");
   }
   return payload;
 }
 
 async function deleteInvestmentSetting(type, id) {
-  const response = await fetch(`/api/investment-settings/${encodeURIComponent(type)}/${encodeURIComponent(id)}`, {
+  const url = type === "recurring"
+    ? `/api/investments/recurring/plans/${encodeURIComponent(id)}`
+    : `/api/investments/${encodeURIComponent(type)}/transactions/${encodeURIComponent(id)}`;
+  const response = await fetch(url, {
     method: "DELETE",
   });
   if (!response.ok) {
@@ -320,6 +335,17 @@ async function deleteInvestmentSetting(type, id) {
     }
     throw new Error(message);
   }
+}
+
+async function generateRecurringTransactions(planId) {
+  const response = await fetch(`/api/investments/recurring/plans/${encodeURIComponent(planId)}/generate-transactions`, {
+    method: "POST",
+  });
+  const payload = await response.json();
+  if (!response.ok) {
+    throw new Error(payload.detail || "無法產生定期定額交易");
+  }
+  return payload;
 }
 
 function renderUpdateStatus(payload) {
@@ -356,7 +382,33 @@ function resetInvestmentForm(state) {
 
 function renderInvestmentRows(state) {
   if (!state.items.length) {
-    state.body.innerHTML = `<tr><td colspan="4" class="empty">${investmentLabels[state.type].empty}</td></tr>`;
+    const colspan = state.type === "recurring" ? 7 : 8;
+    state.body.innerHTML = `<tr><td colspan="${colspan}" class="empty">${investmentLabels[state.type].empty}</td></tr>`;
+    return;
+  }
+
+  if (state.type === "recurring") {
+    state.body.innerHTML = state.items
+      .map(
+        (item) => `
+          <tr>
+            <td>${escapeHtml(item.fund_code)}</td>
+            <td>${escapeHtml(item.fund_name || "-")}</td>
+            <td>${formatCurrency(item.amount)}</td>
+            <td>${escapeHtml(item.start_date || "-")}</td>
+            <td>${escapeHtml(item.end_date || "-")}</td>
+            <td>${escapeHtml((item.days || []).join(", "))}</td>
+            <td>
+              <div class="table-actions">
+                <button class="table-action" type="button" data-action="edit" data-id="${item.id}">編輯</button>
+                <button class="table-action danger" type="button" data-action="delete" data-id="${item.id}">刪除</button>
+                <button class="table-action" type="button" data-action="generate" data-id="${item.id}">產生已到期交易</button>
+              </div>
+            </td>
+          </tr>
+        `
+      )
+      .join("");
     return;
   }
 
@@ -366,7 +418,11 @@ function renderInvestmentRows(state) {
         <tr>
           <td>${escapeHtml(item.fund_code)}</td>
           <td>${escapeHtml(item.fund_name || "-")}</td>
+          <td>${escapeHtml(item.trade_date || "-")}</td>
+          <td>${escapeHtml(item.nav_date || "-")}</td>
+          <td>${formatNumber(item.nav, 4)}</td>
           <td>${formatCurrency(item.amount)}</td>
+          <td>${formatNumber(item.units, 4)}</td>
           <td>
             <div class="table-actions">
               <button class="table-action" type="button" data-action="edit" data-id="${item.id}">編輯</button>
@@ -439,12 +495,67 @@ async function handleInvestmentSubmit(state, event) {
     return;
   }
 
+  if (state.type === "recurring") {
+    const startDate = state.startDateInput.value;
+    const daysText = state.daysInput.value.trim();
+    const days = daysText
+      .split(",")
+      .map((item) => Number(item.trim()))
+      .filter((item) => Number.isInteger(item));
+    if (!startDate) {
+      setInvestmentMessage(state, "開始日必填", "error");
+      state.startDateInput.focus();
+      return;
+    }
+    if (!days.length || days.some((day) => day < 1 || day > 31)) {
+      setInvestmentMessage(state, "每月扣款日必須介於 1 到 31，可用逗號分隔", "error");
+      state.daysInput.focus();
+      return;
+    }
+
+    setInvestmentMessage(state, "儲存中...", "loading");
+    try {
+      await saveInvestmentSetting(state.type, state.idInput.value, {
+        fund_code: code,
+        amount: Number(amountText),
+        start_date: startDate,
+        end_date: state.endDateInput.value || null,
+        days,
+      });
+      resetInvestmentForm(state);
+      await refreshInvestmentSettings(state.type);
+      setInvestmentMessage(state, investmentLabels[state.type].saved, "success");
+    } catch (error) {
+      setInvestmentMessage(state, error.message, "error");
+    }
+    return;
+  }
+
+  if (!state.dateInput.value) {
+    setInvestmentMessage(state, "交易/基準日期必填", "error");
+    state.dateInput.focus();
+    return;
+  }
+
+  let units = null;
+  if (state.type === "holdings") {
+    const unitsText = state.unitsInput.value.trim();
+    if (!/^\d+(\.\d+)?$/.test(unitsText) || Number(unitsText) <= 0) {
+      setInvestmentMessage(state, "現有單位數必須大於 0", "error");
+      state.unitsInput.focus();
+      return;
+    }
+    units = Number(unitsText);
+  }
+
   setInvestmentMessage(state, "儲存中...", "loading");
 
   try {
     await saveInvestmentSetting(state.type, state.idInput.value, {
       fund_code: code,
+      trade_date: state.dateInput.value,
       amount: Number(amountText),
+      units,
     });
     resetInvestmentForm(state);
     await refreshInvestmentSettings(state.type);
@@ -459,7 +570,12 @@ function startInvestmentEdit(state, id) {
   if (!item) return;
   state.idInput.value = item.id;
   state.codeInput.value = item.fund_code;
+  if (state.dateInput) state.dateInput.value = item.trade_date || "";
+  if (state.startDateInput) state.startDateInput.value = item.start_date || "";
+  if (state.endDateInput) state.endDateInput.value = item.end_date || "";
+  if (state.daysInput) state.daysInput.value = (item.days || []).join(",");
   state.amountInput.value = item.amount;
+  if (state.unitsInput) state.unitsInput.value = item.units || "";
   state.fundName.textContent = item.fund_name || "-";
   state.cancelButton.hidden = false;
   setInvestmentMessage(state, "編輯中", "");
@@ -473,6 +589,17 @@ async function handleInvestmentTableAction(state, event) {
   const id = button.dataset.id;
   if (button.dataset.action === "edit") {
     startInvestmentEdit(state, id);
+    return;
+  }
+
+  if (button.dataset.action === "generate") {
+    setInvestmentMessage(state, "產生交易中...", "loading");
+    try {
+      const rows = await generateRecurringTransactions(id);
+      setInvestmentMessage(state, `已產生 ${rows.length} 筆已到期交易`, "success");
+    } catch (error) {
+      setInvestmentMessage(state, error.message, "error");
+    }
     return;
   }
 

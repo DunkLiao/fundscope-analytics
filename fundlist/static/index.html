@@ -64,17 +64,17 @@
         <article class="module-card action-card" data-view="investment-holdings" tabindex="0">
           <span class="module-kicker">投資設定</span>
           <h3>庫存基金設定</h3>
-          <p>管理目前持有基金與逐筆成本金額。</p>
+          <p>管理目前持有基金、基準日期、成本金額與現有單位數。</p>
         </article>
         <article class="module-card action-card" data-view="investment-recurring" tabindex="0">
           <span class="module-kicker">投資設定</span>
           <h3>定期定額申購基金設定</h3>
-          <p>設定預計定期定額申購基金與每期金額。</p>
+          <p>設定每期金額、開始日與每月多個扣款日，並產生已到期交易。</p>
         </article>
         <article class="module-card action-card" data-view="investment-lump-sum" tabindex="0">
           <span class="module-kicker">投資設定</span>
           <h3>單筆申購設定</h3>
-          <p>設定預計單筆申購基金與單次申購金額。</p>
+          <p>記錄單筆申購日期與金額，依淨值計算單位數。</p>
         </article>
       </section>
     </section>
@@ -245,10 +245,10 @@
         <div>
           <p class="eyebrow">Investment Settings</p>
           <h2 id="holdings-title">庫存基金設定</h2>
-          <p class="lead">輸入目前持有的基金代號，系統會自動帶出基金名稱，並保存逐筆成本金額。</p>
+          <p class="lead">輸入目前持有基金的基準日期、成本金額與現有單位數；系統保存實際採用的淨值日期。</p>
         </div>
         <form class="investment-form" data-setting-type="holdings">
-          <input type="hidden" name="setting-id">
+          <input type="hidden" name="record-id">
           <label>
             基金代號
             <input name="fund-code" class="investment-code" autocomplete="off" maxlength="4" placeholder="例如 0721" required>
@@ -258,8 +258,16 @@
             <strong class="investment-fund-name">輸入基金代號後自動帶出</strong>
           </div>
           <label>
+            基準日期
+            <input name="trade-date" class="investment-date" type="date" required>
+          </label>
+          <label>
             成本金額
             <input name="amount" class="investment-amount" inputmode="numeric" placeholder="例如 120000" required>
+          </label>
+          <label>
+            現有單位數
+            <input name="units" class="investment-units" inputmode="decimal" placeholder="例如 9876.5432" required>
           </label>
           <div class="form-actions">
             <button type="submit">儲存</button>
@@ -277,12 +285,16 @@
               <tr>
                 <th>基金代號</th>
                 <th>基金名稱</th>
+                <th>交易/基準日期</th>
+                <th>使用淨值日期</th>
+                <th>淨值</th>
                 <th>成本金額</th>
+                <th>單位數</th>
                 <th>操作</th>
               </tr>
             </thead>
             <tbody class="investment-body">
-              <tr><td colspan="4" class="empty">尚未建立庫存基金設定</td></tr>
+              <tr><td colspan="8" class="empty">尚未建立庫存基金設定</td></tr>
             </tbody>
           </table>
         </div>
@@ -294,10 +306,10 @@
         <div>
           <p class="eyebrow">Investment Settings</p>
           <h2 id="recurring-title">定期定額申購基金設定</h2>
-          <p class="lead">輸入預計定期定額申購的基金代號，並設定每期預計申購金額。</p>
+          <p class="lead">建立定期定額計畫，支援每月多個扣款日；系統只會產生已到期且有可用淨值的交易。</p>
         </div>
         <form class="investment-form" data-setting-type="recurring">
-          <input type="hidden" name="setting-id">
+          <input type="hidden" name="record-id">
           <label>
             基金代號
             <input name="fund-code" class="investment-code" autocomplete="off" maxlength="4" placeholder="例如 0721" required>
@@ -307,11 +319,23 @@
             <strong class="investment-fund-name">輸入基金代號後自動帶出</strong>
           </div>
           <label>
-            每期定期定額預計申購金額
+            每期定期定額申購金額
             <input name="amount" class="investment-amount" inputmode="numeric" placeholder="例如 3000" required>
           </label>
+          <label>
+            開始日
+            <input name="start-date" class="investment-start-date" type="date" required>
+          </label>
+          <label>
+            結束日
+            <input name="end-date" class="investment-end-date" type="date">
+          </label>
+          <label>
+            每月扣款日
+            <input name="days" class="investment-days" inputmode="numeric" placeholder="例如 6,16,26" required>
+          </label>
           <div class="form-actions">
-            <button type="submit">儲存</button>
+            <button type="submit">儲存計畫</button>
             <button type="button" class="secondary-button" data-action="cancel-edit" hidden>取消編輯</button>
           </div>
           <p class="message investment-message" role="status"></p>
@@ -327,11 +351,14 @@
                 <th>基金代號</th>
                 <th>基金名稱</th>
                 <th>每期預計申購金額</th>
+                <th>開始日</th>
+                <th>結束日</th>
+                <th>每月扣款日</th>
                 <th>操作</th>
               </tr>
             </thead>
             <tbody class="investment-body">
-              <tr><td colspan="4" class="empty">尚未建立定期定額申購基金設定</td></tr>
+              <tr><td colspan="7" class="empty">尚未建立定期定額申購基金設定</td></tr>
             </tbody>
           </table>
         </div>
@@ -343,10 +370,10 @@
         <div>
           <p class="eyebrow">Investment Settings</p>
           <h2 id="lump-sum-title">單筆申購設定</h2>
-          <p class="lead">輸入預計單筆申購的基金代號，並設定單次申購金額。</p>
+          <p class="lead">輸入單筆申購日期與金額；系統依交易日前最近可用淨值計算單位數。</p>
         </div>
         <form class="investment-form" data-setting-type="lump-sum">
-          <input type="hidden" name="setting-id">
+          <input type="hidden" name="record-id">
           <label>
             基金代號
             <input name="fund-code" class="investment-code" autocomplete="off" maxlength="4" placeholder="例如 0721" required>
@@ -355,6 +382,10 @@
             <span class="label">基金名稱</span>
             <strong class="investment-fund-name">輸入基金代號後自動帶出</strong>
           </div>
+          <label>
+            申購日期
+            <input name="trade-date" class="investment-date" type="date" required>
+          </label>
           <label>
             單次申購金額
             <input name="amount" class="investment-amount" inputmode="numeric" placeholder="例如 100000" required>
@@ -375,12 +406,16 @@
               <tr>
                 <th>基金代號</th>
                 <th>基金名稱</th>
+                <th>交易/基準日期</th>
+                <th>使用淨值日期</th>
+                <th>淨值</th>
                 <th>單次申購金額</th>
+                <th>單位數</th>
                 <th>操作</th>
               </tr>
             </thead>
             <tbody class="investment-body">
-              <tr><td colspan="4" class="empty">尚未建立單筆申購設定</td></tr>
+              <tr><td colspan="8" class="empty">尚未建立單筆申購設定</td></tr>
             </tbody>
           </table>
         </div>

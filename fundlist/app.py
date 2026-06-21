@@ -1,5 +1,5 @@
 import re
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from threading import Lock
 
@@ -69,6 +69,63 @@ def parse_investment_setting_payload(payload):
     return fund_code, normalized_amount
 
 
+def parse_positive_int(value, message="金額必須是大於 0 的整數"):
+    if isinstance(value, bool):
+        raise HTTPException(status_code=400, detail=message)
+    if isinstance(value, int):
+        normalized_value = value
+    elif isinstance(value, str) and value.strip().isdigit():
+        normalized_value = int(value.strip())
+    else:
+        raise HTTPException(status_code=400, detail=message)
+    if normalized_value <= 0:
+        raise HTTPException(status_code=400, detail=message)
+    return normalized_value
+
+
+def parse_positive_float(value, message="單位數必須大於 0"):
+    if isinstance(value, bool):
+        raise HTTPException(status_code=400, detail=message)
+    try:
+        normalized_value = float(value)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=message) from exc
+    if normalized_value <= 0:
+        raise HTTPException(status_code=400, detail=message)
+    return normalized_value
+
+
+def parse_transaction_payload(investment_type, payload):
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="請提供投資交易資料")
+    fund_code = normalize_fund_code(payload.get("fund_code", ""))
+    trade_date = str(payload.get("trade_date", "")).strip()
+    if not trade_date:
+        raise HTTPException(status_code=400, detail="交易/基準日期必填")
+    amount = parse_positive_int(payload.get("amount"), "投資金額必須是大於 0 的整數")
+    units = None
+    if investment_type == "holdings":
+        units = parse_positive_float(payload.get("units"), "現有單位數必須大於 0")
+    return fund_code, trade_date, amount, units
+
+
+def parse_recurring_plan_payload(payload):
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="請提供定期定額計畫資料")
+    fund_code = normalize_fund_code(payload.get("fund_code", ""))
+    amount = parse_positive_int(payload.get("amount"), "每期金額必須是大於 0 的整數")
+    start_date = str(payload.get("start_date", "")).strip()
+    if not start_date:
+        raise HTTPException(status_code=400, detail="開始日必填")
+    end_date = payload.get("end_date")
+    if isinstance(end_date, str):
+        end_date = end_date.strip() or None
+    days = payload.get("days")
+    if not isinstance(days, list) or not days:
+        raise HTTPException(status_code=400, detail="每月扣款日不可為空")
+    return fund_code, amount, start_date, end_date, days
+
+
 def raise_investment_setting_error(exc):
     message = str(exc)
     if "已存在" in message:
@@ -78,6 +135,54 @@ def raise_investment_setting_error(exc):
     if "未知的投資設定類型" in message:
         raise HTTPException(status_code=404, detail=message) from exc
     raise HTTPException(status_code=400, detail=message) from exc
+
+
+def raise_investment_data_error(exc):
+    message = str(exc)
+    if "已存在" in message:
+        raise HTTPException(status_code=409, detail=message) from exc
+    if "找不到" in message:
+        raise HTTPException(status_code=404, detail=message) from exc
+    if "未知" in message:
+        raise HTTPException(status_code=404, detail=message) from exc
+    raise HTTPException(status_code=400, detail=message) from exc
+
+
+def days_back_for_trade_date(trade_date):
+    try:
+        parsed = date.fromisoformat(str(trade_date).strip())
+    except ValueError:
+        return 365
+    return max(365, (date.today() - parsed).days + 7)
+
+
+def refresh_nav_prices_for_transaction(fund_code, trade_date):
+    fund = database.get_fund_by_code(fund_code)
+    if fund is None:
+        raise HTTPException(status_code=404, detail="找不到此基金代號，請先更新基金清單")
+    if not fund.get("fund_id"):
+        raise HTTPException(status_code=502, detail="此基金缺少查詢傳輸代號，無法查詢淨值")
+
+    try:
+        nav_rows = fetch_nav.fetch_nav_for_fund(
+            fund_id=fund["fund_id"],
+            market=fund.get("market", ""),
+            days_back=days_back_for_trade_date(trade_date),
+        )
+        database.upsert_fund_prices(fund_code, nav_rows)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"淨值來源查詢失敗：{exc}") from exc
+
+
+def should_retry_after_nav_refresh(exc):
+    return "找不到交易/基準日前可用淨值" in str(exc)
+
+
+def get_recurring_plan_or_404(plan_id):
+    for plan in database.list_recurring_investment_plans():
+        if int(plan["id"]) == int(plan_id):
+            return plan
+    raise HTTPException(status_code=404, detail="找不到定期定額計畫")
 
 
 def get_fund_list_update_status():
@@ -176,6 +281,7 @@ def get_fund_nav(fund_code):
             market=fund.get("market", ""),
             days_back=365,
         )
+        database.upsert_fund_prices(normalized_code, nav_rows)
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"淨值來源查詢失敗：{exc}") from exc
 
@@ -240,3 +346,142 @@ def delete_investment_setting(setting_type, row_id: int):
     if not deleted:
         raise HTTPException(status_code=404, detail="找不到投資設定資料")
     return Response(status_code=204)
+
+
+@app.get("/api/investments/{investment_type}/transactions")
+def list_investment_transactions(investment_type):
+    try:
+        return database.list_investment_transactions(investment_type)
+    except ValueError as exc:
+        raise_investment_data_error(exc)
+
+
+@app.post("/api/investments/{investment_type}/transactions", status_code=201)
+def create_investment_transaction(investment_type, payload=Body(...)):
+    fund_code, trade_date, amount, units = parse_transaction_payload(investment_type, payload)
+    try:
+        return database.create_investment_transaction(
+            investment_type,
+            fund_code,
+            trade_date=trade_date,
+            amount=amount,
+            units=units,
+        )
+    except ValueError as exc:
+        if should_retry_after_nav_refresh(exc):
+            refresh_nav_prices_for_transaction(fund_code, trade_date)
+            try:
+                return database.create_investment_transaction(
+                    investment_type,
+                    fund_code,
+                    trade_date=trade_date,
+                    amount=amount,
+                    units=units,
+                )
+            except ValueError as retry_exc:
+                raise_investment_data_error(retry_exc)
+        raise_investment_data_error(exc)
+
+
+@app.put("/api/investments/{investment_type}/transactions/{row_id}")
+def update_investment_transaction(investment_type, row_id: int, payload=Body(...)):
+    fund_code, trade_date, amount, units = parse_transaction_payload(investment_type, payload)
+    try:
+        return database.update_investment_transaction(
+            investment_type,
+            row_id,
+            fund_code,
+            trade_date=trade_date,
+            amount=amount,
+            units=units,
+        )
+    except ValueError as exc:
+        if should_retry_after_nav_refresh(exc):
+            refresh_nav_prices_for_transaction(fund_code, trade_date)
+            try:
+                return database.update_investment_transaction(
+                    investment_type,
+                    row_id,
+                    fund_code,
+                    trade_date=trade_date,
+                    amount=amount,
+                    units=units,
+                )
+            except ValueError as retry_exc:
+                raise_investment_data_error(retry_exc)
+        raise_investment_data_error(exc)
+
+
+@app.delete("/api/investments/{investment_type}/transactions/{row_id}", status_code=204)
+def delete_investment_transaction(investment_type, row_id: int):
+    try:
+        deleted = database.delete_investment_transaction(investment_type, row_id)
+    except ValueError as exc:
+        raise_investment_data_error(exc)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="找不到投資交易資料")
+    return Response(status_code=204)
+
+
+@app.get("/api/investments/recurring/plans")
+def list_recurring_investment_plans():
+    return database.list_recurring_investment_plans()
+
+
+@app.post("/api/investments/recurring/plans", status_code=201)
+def create_recurring_investment_plan(payload=Body(...)):
+    fund_code, amount, start_date, end_date, days = parse_recurring_plan_payload(payload)
+    refresh_nav_prices_for_transaction(fund_code, start_date)
+    try:
+        return database.create_recurring_investment_plan(
+            fund_code,
+            amount=amount,
+            start_date=start_date,
+            end_date=end_date,
+            days=days,
+        )
+    except ValueError as exc:
+        raise_investment_data_error(exc)
+
+
+@app.put("/api/investments/recurring/plans/{plan_id}")
+def update_recurring_investment_plan(plan_id: int, payload=Body(...)):
+    fund_code, amount, start_date, end_date, days = parse_recurring_plan_payload(payload)
+    refresh_nav_prices_for_transaction(fund_code, start_date)
+    try:
+        return database.update_recurring_investment_plan(
+            plan_id,
+            fund_code,
+            amount=amount,
+            start_date=start_date,
+            end_date=end_date,
+            days=days,
+        )
+    except ValueError as exc:
+        raise_investment_data_error(exc)
+
+
+@app.delete("/api/investments/recurring/plans/{plan_id}", status_code=204)
+def delete_recurring_investment_plan(plan_id: int):
+    try:
+        deleted = database.delete_recurring_investment_plan(plan_id)
+    except ValueError as exc:
+        raise_investment_data_error(exc)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="找不到定期定額計畫")
+    return Response(status_code=204)
+
+
+@app.post("/api/investments/recurring/plans/{plan_id}/generate-transactions")
+def generate_recurring_transactions(plan_id: int):
+    try:
+        return database.generate_recurring_transactions(plan_id)
+    except ValueError as exc:
+        if should_retry_after_nav_refresh(exc):
+            plan = get_recurring_plan_or_404(plan_id)
+            refresh_nav_prices_for_transaction(plan["fund_code"], plan["start_date"])
+            try:
+                return database.generate_recurring_transactions(plan_id)
+            except ValueError as retry_exc:
+                raise_investment_data_error(retry_exc)
+        raise_investment_data_error(exc)

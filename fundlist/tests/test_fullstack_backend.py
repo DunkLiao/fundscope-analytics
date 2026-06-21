@@ -133,6 +133,223 @@ class DatabaseTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "找不到此基金代號"):
                 database.create_investment_setting("lump-sum", "9999", 5000, db_path)
 
+    def test_fund_prices_upsert_and_lookup_uses_latest_price_on_or_before_date(self):
+        import database
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "funddata.db"
+            database.upsert_funds(
+                [
+                    {
+                        "market": "海外",
+                        "fund_company": "測試投信",
+                        "fund_id": "FLZ21",
+                        "fund_name_main": "測試基金",
+                        "base_code": "BASE123",
+                        "can_sell": "*",
+                        "fund_code": "0721",
+                        "fund_name": "",
+                    }
+                ],
+                db_path,
+            )
+            database.upsert_fund_prices(
+                "0721",
+                [
+                    {"date": date(2026, 6, 18), "nav": 10.5, "change": 0.5, "change_percent": 5.0},
+                    {"date": date(2026, 6, 19), "nav": 10.25, "change": -0.25, "change_percent": -2.38},
+                ],
+                db_path=db_path,
+            )
+
+            exact = database.get_fund_price_on_or_before("0721", date(2026, 6, 19), db_path)
+            fallback = database.get_fund_price_on_or_before("0721", date(2026, 6, 21), db_path)
+            missing = database.get_fund_price_on_or_before("0721", date(2026, 6, 17), db_path)
+
+            self.assertEqual(exact["price_date"], "2026-06-19")
+            self.assertEqual(fallback["price_date"], "2026-06-19")
+            self.assertIsNone(missing)
+
+    def test_create_lump_sum_transaction_uses_fallback_nav_and_calculates_units(self):
+        import database
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "funddata.db"
+            database.upsert_funds(
+                [
+                    {
+                        "market": "海外",
+                        "fund_company": "測試投信",
+                        "fund_id": "FLZ21",
+                        "fund_name_main": "測試基金",
+                        "base_code": "BASE123",
+                        "can_sell": "*",
+                        "fund_code": "0721",
+                        "fund_name": "",
+                    }
+                ],
+                db_path,
+            )
+            database.upsert_fund_prices(
+                "0721",
+                [{"date": date(2026, 6, 19), "nav": 10.25, "change": None, "change_percent": None}],
+                db_path=db_path,
+            )
+
+            created = database.create_investment_transaction(
+                "lump-sum",
+                "0721",
+                trade_date=date(2026, 6, 21),
+                amount=10250,
+                db_path=db_path,
+                today=date(2026, 6, 21),
+            )
+
+            self.assertEqual(created["investment_type"], "lump-sum")
+            self.assertEqual(created["trade_date"], "2026-06-21")
+            self.assertEqual(created["nav_date"], "2026-06-19")
+            self.assertEqual(created["nav"], 10.25)
+            self.assertAlmostEqual(created["units"], 1000.0)
+
+    def test_create_holding_transaction_saves_user_units_and_rejects_future_date(self):
+        import database
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "funddata.db"
+            database.upsert_funds(
+                [
+                    {
+                        "market": "海外",
+                        "fund_company": "測試投信",
+                        "fund_id": "FLZ21",
+                        "fund_name_main": "測試基金",
+                        "base_code": "BASE123",
+                        "can_sell": "*",
+                        "fund_code": "0721",
+                        "fund_name": "",
+                    }
+                ],
+                db_path,
+            )
+            database.upsert_fund_prices(
+                "0721",
+                [{"date": date(2026, 6, 19), "nav": 10.25, "change": None, "change_percent": None}],
+                db_path=db_path,
+            )
+
+            created = database.create_investment_transaction(
+                "holdings",
+                "0721",
+                trade_date=date(2026, 6, 20),
+                amount=120000,
+                units=9876.5432,
+                db_path=db_path,
+                today=date(2026, 6, 21),
+            )
+
+            self.assertEqual(created["units"], 9876.5432)
+            with self.assertRaisesRegex(ValueError, "不可晚於今天"):
+                database.create_investment_transaction(
+                    "holdings",
+                    "0721",
+                    trade_date=date(2026, 6, 22),
+                    amount=120000,
+                    units=9876.5432,
+                    db_path=db_path,
+                    today=date(2026, 6, 21),
+                )
+
+    def test_recurring_plan_supports_multiple_days_and_generates_transactions_once(self):
+        import database
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "funddata.db"
+            database.upsert_funds(
+                [
+                    {
+                        "market": "海外",
+                        "fund_company": "測試投信",
+                        "fund_id": "FLZ21",
+                        "fund_name_main": "測試基金",
+                        "base_code": "BASE123",
+                        "can_sell": "*",
+                        "fund_code": "0721",
+                        "fund_name": "",
+                    }
+                ],
+                db_path,
+            )
+            database.upsert_fund_prices(
+                "0721",
+                [
+                    {"date": date(2026, 6, 6), "nav": 10.0, "change": None, "change_percent": None},
+                    {"date": date(2026, 6, 16), "nav": 10.5, "change": None, "change_percent": None},
+                ],
+                db_path=db_path,
+            )
+            plan = database.create_recurring_investment_plan(
+                "0721",
+                amount=3000,
+                start_date=date(2026, 6, 1),
+                end_date=None,
+                days=[6, 16, 26],
+                db_path=db_path,
+            )
+
+            first_run = database.generate_recurring_transactions(plan["id"], db_path=db_path, today=date(2026, 6, 21))
+            second_run = database.generate_recurring_transactions(plan["id"], db_path=db_path, today=date(2026, 6, 21))
+
+            self.assertEqual(plan["days"], [6, 16, 26])
+            self.assertEqual([row["trade_date"] for row in first_run], ["2026-06-06", "2026-06-16"])
+            self.assertEqual(second_run, [])
+            self.assertEqual(len(database.list_investment_transactions("recurring", db_path)), 2)
+
+    def test_recurring_plan_update_and_delete_keep_crud_available(self):
+        import database
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "funddata.db"
+            database.upsert_funds(
+                [
+                    {
+                        "market": "海外",
+                        "fund_company": "測試投信",
+                        "fund_id": "FLZ21",
+                        "fund_name_main": "測試基金",
+                        "base_code": "BASE123",
+                        "can_sell": "*",
+                        "fund_code": "0721",
+                        "fund_name": "",
+                    }
+                ],
+                db_path,
+            )
+            plan = database.create_recurring_investment_plan(
+                "0721",
+                amount=3000,
+                start_date=date(2026, 6, 1),
+                end_date=None,
+                days=[6, 16],
+                db_path=db_path,
+            )
+
+            updated = database.update_recurring_investment_plan(
+                plan["id"],
+                "0721",
+                amount=5000,
+                start_date=date(2026, 7, 1),
+                end_date=date(2026, 12, 31),
+                days=[5, 15, 25],
+                db_path=db_path,
+            )
+
+            self.assertEqual(updated["amount"], 5000)
+            self.assertEqual(updated["start_date"], "2026-07-01")
+            self.assertEqual(updated["end_date"], "2026-12-31")
+            self.assertEqual(updated["days"], [5, 15, 25])
+            self.assertTrue(database.delete_recurring_investment_plan(plan["id"], db_path))
+            self.assertEqual(database.list_recurring_investment_plans(db_path), [])
+
 
 class FetchNavTests(unittest.TestCase):
     def test_parse_bcd_nav_and_compute_changes(self):
@@ -410,6 +627,24 @@ class StaticLayoutTests(unittest.TestCase):
         self.assertIn("performance-returns-head", html)
         self.assertIn("performance-returns-body", html)
 
+    def test_static_layout_uses_transaction_and_recurring_plan_forms(self):
+        static_dir = Path(__file__).resolve().parents[1] / "static"
+        html = (static_dir / "index.html").read_text(encoding="utf-8")
+        js = (static_dir / "app.js").read_text(encoding="utf-8")
+
+        self.assertIn("基準日期", html)
+        self.assertIn("現有單位數", html)
+        self.assertIn("每月扣款日", html)
+        self.assertIn("產生已到期交易", html)
+        self.assertIn("使用淨值日期", html)
+        self.assertIn("/api/investments/", js)
+        self.assertIn("/transactions", js)
+        self.assertIn("/plans", js)
+        self.assertIn('data-action="edit"', js)
+        self.assertIn('data-action="delete"', js)
+        self.assertIn('data-action="generate"', js)
+        self.assertIn("api/investments/recurring/plans/${encodeURIComponent(id)}", js)
+
 
 class ApiTests(unittest.TestCase):
     def load_app(self):
@@ -445,7 +680,7 @@ class ApiTests(unittest.TestCase):
 
         with patch.object(app.database, "get_fund_by_code", return_value=fund), patch.object(
             app.fetch_nav, "fetch_nav_for_fund", return_value=nav_rows
-        ):
+        ), patch.object(app.database, "upsert_fund_prices") as upsert_prices:
             response = client.get("/api/funds/0721/nav")
 
         self.assertEqual(response.status_code, 200)
@@ -454,6 +689,7 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(payload["fund"]["fund_id"], "FLZ21")
         self.assertEqual(payload["nav"][0]["date"], "2026-06-19")
         self.assertEqual(payload["nav"][0]["nav"], 10.25)
+        upsert_prices.assert_called_once_with("0721", nav_rows)
 
     def test_api_returns_performance_for_four_character_fund_code(self):
         app = self.load_app()
@@ -603,6 +839,418 @@ class ApiTests(unittest.TestCase):
         update_setting.assert_called_once_with("holdings", 1, "0721", 150000)
         delete_setting.assert_called_once_with("holdings", 1)
         self.assertEqual(list_settings.call_count, 2)
+
+    def test_api_crud_investment_transactions(self):
+        app = self.load_app()
+        from fastapi.testclient import TestClient
+
+        client = TestClient(app.app)
+        created = {
+            "id": 1,
+            "investment_type": "holdings",
+            "fund_code": "0721",
+            "fund_name": "測試基金",
+            "trade_date": "2026-06-21",
+            "nav_date": "2026-06-19",
+            "nav": 10.25,
+            "amount": 120000,
+            "units": 9876.5432,
+            "source_plan_id": None,
+            "created_at": "2026-06-21T00:00:00+00:00",
+            "updated_at": "2026-06-21T00:00:00+00:00",
+        }
+        updated = dict(created, amount=125000)
+
+        with patch.object(
+            app.database, "create_investment_transaction", return_value=created
+        ) as create_transaction, patch.object(
+            app.database, "list_investment_transactions", side_effect=[[created], []]
+        ) as list_transactions, patch.object(
+            app.database, "update_investment_transaction", return_value=updated
+        ) as update_transaction, patch.object(
+            app.database, "delete_investment_transaction", return_value=True
+        ) as delete_transaction:
+            create_response = client.post(
+                "/api/investments/holdings/transactions",
+                json={
+                    "fund_code": "0721",
+                    "trade_date": "2026-06-21",
+                    "amount": 120000,
+                    "units": 9876.5432,
+                },
+            )
+            list_response = client.get("/api/investments/holdings/transactions")
+            update_response = client.put(
+                "/api/investments/holdings/transactions/1",
+                json={
+                    "fund_code": "0721",
+                    "trade_date": "2026-06-21",
+                    "amount": 125000,
+                    "units": 9876.5432,
+                },
+            )
+            delete_response = client.delete("/api/investments/holdings/transactions/1")
+            empty_response = client.get("/api/investments/holdings/transactions")
+
+        self.assertEqual(create_response.status_code, 201)
+        self.assertEqual(create_response.json()["nav_date"], "2026-06-19")
+        self.assertEqual(list_response.json(), [created])
+        self.assertEqual(update_response.json()["amount"], 125000)
+        self.assertEqual(delete_response.status_code, 204)
+        self.assertEqual(empty_response.json(), [])
+        create_transaction.assert_called_once_with(
+            "holdings",
+            "0721",
+            trade_date="2026-06-21",
+            amount=120000,
+            units=9876.5432,
+        )
+        update_transaction.assert_called_once_with(
+            "holdings",
+            1,
+            "0721",
+            trade_date="2026-06-21",
+            amount=125000,
+            units=9876.5432,
+        )
+        delete_transaction.assert_called_once_with("holdings", 1)
+        self.assertEqual(list_transactions.call_count, 2)
+
+    def test_api_fetches_nav_when_transaction_has_no_local_price(self):
+        app = self.load_app()
+        from fastapi.testclient import TestClient
+
+        client = TestClient(app.app)
+        fund = {
+            "market": "海外",
+            "fund_company": "測試投信",
+            "fund_id": "FLZ21",
+            "fund_name_main": "測試基金",
+            "base_code": "BASE123",
+            "can_sell": "*",
+            "fund_code": "0721",
+            "fund_name": "",
+        }
+        nav_rows = [
+            {
+                "date": date(2026, 6, 10),
+                "nav": 10.25,
+                "change": None,
+                "change_percent": None,
+            }
+        ]
+        created = {
+            "id": 1,
+            "investment_type": "holdings",
+            "fund_code": "0721",
+            "fund_name": "測試基金",
+            "trade_date": "2026-06-10",
+            "nav_date": "2026-06-10",
+            "nav": 10.25,
+            "amount": 10000,
+            "units": 33.0,
+            "source_plan_id": None,
+            "created_at": "2026-06-21T00:00:00+00:00",
+            "updated_at": "2026-06-21T00:00:00+00:00",
+        }
+
+        with patch.object(app.database, "get_fund_by_code", return_value=fund), patch.object(
+            app.fetch_nav, "fetch_nav_for_fund", return_value=nav_rows
+        ) as fetch_nav, patch.object(app.database, "upsert_fund_prices") as upsert_prices, patch.object(
+            app.database,
+            "create_investment_transaction",
+            side_effect=[ValueError("找不到交易/基準日前可用淨值"), created],
+        ) as create_transaction:
+            response = client.post(
+                "/api/investments/holdings/transactions",
+                json={
+                    "fund_code": "0721",
+                    "trade_date": "2026-06-10",
+                    "amount": 10000,
+                    "units": 33,
+                },
+            )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json()["nav_date"], "2026-06-10")
+        fetch_nav.assert_called_once()
+        upsert_prices.assert_called_once_with("0721", nav_rows)
+        self.assertEqual(create_transaction.call_count, 2)
+
+    def test_api_recurring_plan_create_and_generate_transactions(self):
+        app = self.load_app()
+        from fastapi.testclient import TestClient
+
+        client = TestClient(app.app)
+        plan = {
+            "id": 7,
+            "fund_code": "0721",
+            "fund_name": "測試基金",
+            "amount": 3000,
+            "start_date": "2026-06-01",
+            "end_date": None,
+            "status": "active",
+            "days": [6, 16, 26],
+            "created_at": "2026-06-21T00:00:00+00:00",
+            "updated_at": "2026-06-21T00:00:00+00:00",
+        }
+        generated = [
+            {
+                "id": 11,
+                "investment_type": "recurring",
+                "fund_code": "0721",
+                "fund_name": "測試基金",
+                "trade_date": "2026-06-06",
+                "nav_date": "2026-06-06",
+                "nav": 10.0,
+                "amount": 3000,
+                "units": 300.0,
+                "source_plan_id": 7,
+                "created_at": "2026-06-21T00:00:00+00:00",
+                "updated_at": "2026-06-21T00:00:00+00:00",
+            }
+        ]
+
+        with patch.object(
+            app.database, "create_recurring_investment_plan", return_value=plan
+        ) as create_plan, patch.object(
+            app.database, "list_recurring_investment_plans", return_value=[plan]
+        ), patch.object(
+            app.database, "generate_recurring_transactions", return_value=generated
+        ) as generate_transactions:
+            create_response = client.post(
+                "/api/investments/recurring/plans",
+                json={
+                    "fund_code": "0721",
+                    "amount": 3000,
+                    "start_date": "2026-06-01",
+                    "end_date": None,
+                    "days": [6, 16, 26],
+                },
+            )
+            list_response = client.get("/api/investments/recurring/plans")
+            generate_response = client.post("/api/investments/recurring/plans/7/generate-transactions")
+
+        self.assertEqual(create_response.status_code, 201)
+        self.assertEqual(create_response.json()["days"], [6, 16, 26])
+        self.assertEqual(list_response.json(), [plan])
+        self.assertEqual(generate_response.json(), generated)
+        create_plan.assert_called_once_with(
+            "0721",
+            amount=3000,
+            start_date="2026-06-01",
+            end_date=None,
+            days=[6, 16, 26],
+        )
+        generate_transactions.assert_called_once_with(7)
+
+    def test_api_fetches_nav_when_creating_recurring_plan(self):
+        app = self.load_app()
+        from fastapi.testclient import TestClient
+
+        client = TestClient(app.app)
+        fund = {
+            "market": "海外",
+            "fund_company": "測試投信",
+            "fund_id": "FLZ21",
+            "fund_name_main": "測試基金",
+            "base_code": "BASE123",
+            "can_sell": "*",
+            "fund_code": "0721",
+            "fund_name": "",
+        }
+        nav_rows = [{"date": date(2026, 6, 1), "nav": 10.25, "change": None, "change_percent": None}]
+        plan = {
+            "id": 7,
+            "fund_code": "0721",
+            "fund_name": "測試基金",
+            "amount": 3000,
+            "start_date": "2026-06-01",
+            "end_date": None,
+            "status": "active",
+            "days": [6, 16, 26],
+            "created_at": "2026-06-21T00:00:00+00:00",
+            "updated_at": "2026-06-21T00:00:00+00:00",
+        }
+
+        with patch.object(app.database, "get_fund_by_code", return_value=fund), patch.object(
+            app.fetch_nav, "fetch_nav_for_fund", return_value=nav_rows
+        ) as fetch_nav, patch.object(app.database, "upsert_fund_prices") as upsert_prices, patch.object(
+            app.database, "create_recurring_investment_plan", return_value=plan
+        ):
+            response = client.post(
+                "/api/investments/recurring/plans",
+                json={
+                    "fund_code": "0721",
+                    "amount": 3000,
+                    "start_date": "2026-06-01",
+                    "end_date": None,
+                    "days": [6, 16, 26],
+                },
+            )
+
+        self.assertEqual(response.status_code, 201)
+        fetch_nav.assert_called_once()
+        upsert_prices.assert_called_once_with("0721", nav_rows)
+
+    def test_api_recurring_plan_update_and_delete(self):
+        app = self.load_app()
+        from fastapi.testclient import TestClient
+
+        client = TestClient(app.app)
+        updated = {
+            "id": 7,
+            "fund_code": "0721",
+            "fund_name": "測試基金",
+            "amount": 5000,
+            "start_date": "2026-07-01",
+            "end_date": "2026-12-31",
+            "status": "active",
+            "days": [5, 15, 25],
+            "created_at": "2026-06-21T00:00:00+00:00",
+            "updated_at": "2026-06-21T00:00:00+00:00",
+        }
+
+        with patch.object(
+            app.database, "update_recurring_investment_plan", return_value=updated
+        ) as update_plan, patch.object(
+            app.database, "delete_recurring_investment_plan", return_value=True
+        ) as delete_plan:
+            update_response = client.put(
+                "/api/investments/recurring/plans/7",
+                json={
+                    "fund_code": "0721",
+                    "amount": 5000,
+                    "start_date": "2026-07-01",
+                    "end_date": "2026-12-31",
+                    "days": [5, 15, 25],
+                },
+            )
+            delete_response = client.delete("/api/investments/recurring/plans/7")
+
+        self.assertEqual(update_response.status_code, 200)
+        self.assertEqual(update_response.json()["days"], [5, 15, 25])
+        self.assertEqual(delete_response.status_code, 204)
+        update_plan.assert_called_once_with(
+            7,
+            "0721",
+            amount=5000,
+            start_date="2026-07-01",
+            end_date="2026-12-31",
+            days=[5, 15, 25],
+        )
+        delete_plan.assert_called_once_with(7)
+
+    def test_api_fetches_nav_when_updating_recurring_plan(self):
+        app = self.load_app()
+        from fastapi.testclient import TestClient
+
+        client = TestClient(app.app)
+        fund = {
+            "market": "海外",
+            "fund_company": "測試投信",
+            "fund_id": "FLZ21",
+            "fund_name_main": "測試基金",
+            "base_code": "BASE123",
+            "can_sell": "*",
+            "fund_code": "0721",
+            "fund_name": "",
+        }
+        nav_rows = [{"date": date(2026, 7, 1), "nav": 10.5, "change": None, "change_percent": None}]
+        updated = {
+            "id": 7,
+            "fund_code": "0721",
+            "fund_name": "測試基金",
+            "amount": 5000,
+            "start_date": "2026-07-01",
+            "end_date": None,
+            "status": "active",
+            "days": [5, 15, 25],
+            "created_at": "2026-06-21T00:00:00+00:00",
+            "updated_at": "2026-06-21T00:00:00+00:00",
+        }
+
+        with patch.object(app.database, "get_fund_by_code", return_value=fund), patch.object(
+            app.fetch_nav, "fetch_nav_for_fund", return_value=nav_rows
+        ) as fetch_nav, patch.object(app.database, "upsert_fund_prices") as upsert_prices, patch.object(
+            app.database, "update_recurring_investment_plan", return_value=updated
+        ):
+            response = client.put(
+                "/api/investments/recurring/plans/7",
+                json={
+                    "fund_code": "0721",
+                    "amount": 5000,
+                    "start_date": "2026-07-01",
+                    "end_date": None,
+                    "days": [5, 15, 25],
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        fetch_nav.assert_called_once()
+        upsert_prices.assert_called_once_with("0721", nav_rows)
+
+    def test_api_fetches_nav_when_generating_recurring_transactions_has_no_local_price(self):
+        app = self.load_app()
+        from fastapi.testclient import TestClient
+
+        client = TestClient(app.app)
+        fund = {
+            "market": "海外",
+            "fund_company": "測試投信",
+            "fund_id": "FLZ21",
+            "fund_name_main": "測試基金",
+            "base_code": "BASE123",
+            "can_sell": "*",
+            "fund_code": "0721",
+            "fund_name": "",
+        }
+        plan = {
+            "id": 7,
+            "fund_code": "0721",
+            "fund_name": "測試基金",
+            "amount": 3000,
+            "start_date": "2026-06-01",
+            "end_date": None,
+            "status": "active",
+            "days": [6],
+            "created_at": "2026-06-21T00:00:00+00:00",
+            "updated_at": "2026-06-21T00:00:00+00:00",
+        }
+        nav_rows = [{"date": date(2026, 6, 6), "nav": 10.0, "change": None, "change_percent": None}]
+        generated = [
+            {
+                "id": 11,
+                "investment_type": "recurring",
+                "fund_code": "0721",
+                "fund_name": "測試基金",
+                "trade_date": "2026-06-06",
+                "nav_date": "2026-06-06",
+                "nav": 10.0,
+                "amount": 3000,
+                "units": 300.0,
+                "source_plan_id": 7,
+                "created_at": "2026-06-21T00:00:00+00:00",
+                "updated_at": "2026-06-21T00:00:00+00:00",
+            }
+        ]
+
+        with patch.object(
+            app.database,
+            "generate_recurring_transactions",
+            side_effect=[ValueError("找不到交易/基準日前可用淨值"), generated],
+        ) as generate_transactions, patch.object(
+            app.database, "list_recurring_investment_plans", return_value=[plan]
+        ), patch.object(app.database, "get_fund_by_code", return_value=fund), patch.object(
+            app.fetch_nav, "fetch_nav_for_fund", return_value=nav_rows
+        ) as fetch_nav, patch.object(app.database, "upsert_fund_prices") as upsert_prices:
+            response = client.post("/api/investments/recurring/plans/7/generate-transactions")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), generated)
+        fetch_nav.assert_called_once()
+        upsert_prices.assert_called_once_with("0721", nav_rows)
+        self.assertEqual(generate_transactions.call_count, 2)
 
     def test_api_rejects_invalid_investment_setting_payload(self):
         app = self.load_app()
