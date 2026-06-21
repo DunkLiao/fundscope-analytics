@@ -21,6 +21,17 @@ fundscope-analytics/
 └─ start_website.bat
 ```
 
+## Domain Model
+
+`fundlist/domain/` 保存基金分析的內部領域模型，與 FastAPI response、SQLite row 分離：
+
+- `entities.py`：`Fund`、`FundPrice`、`FundHolding`、`Prediction`、`SimulationResult`。
+- `value_objects.py`：`DateRange`、`ReturnRate`、`Volatility`、`CAGR`。
+- `services.py`：依基金淨值序列計算區間報酬率、CAGR、波動度。
+- `mappers.py`：把現有 `funds` table row、投資設定 row、NAV row 轉成領域物件。
+
+目前 Domain Model 是內部邊界；既有 API 回傳格式不變，也尚未新增 `Prediction` 或 `SimulationResult` 的正式資料表。
+
 ## 安裝環境
 
 ```powershell

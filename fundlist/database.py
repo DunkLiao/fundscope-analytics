@@ -2,6 +2,11 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
+try:
+    from .domain.mappers import fund_from_row, fund_holding_from_setting_row
+except ImportError:
+    from domain.mappers import fund_from_row, fund_holding_from_setting_row
+
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 DB_PATH = SCRIPT_DIR.parent / "db" / "funddata.db"
@@ -315,6 +320,18 @@ def get_fund_by_code(fund_code, db_path=DB_PATH):
     finally:
         conn.close()
     return result
+
+
+def get_fund_domain_by_code(fund_code, db_path=DB_PATH):
+    row = get_fund_by_code(fund_code, db_path)
+    if row is None:
+        return None
+    return fund_from_row(row)
+
+
+def list_fund_holding_domains(setting_type, db_path=DB_PATH):
+    rows = list_investment_settings(setting_type, db_path)
+    return [fund_holding_from_setting_row(row, setting_type) for row in rows]
 
 
 def save_fund_list_update_status(status, message, started_at=None, finished_at=None, db_path=DB_PATH):
